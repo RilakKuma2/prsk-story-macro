@@ -8,11 +8,7 @@ using System.Reflection;
 // and on the user's yes download the zip, close, copy it over the install and start again. local/ is never touched.
 internal static partial class Program
 {
-    const string ReleaseRepo="RilakKuma2/prsk-story-macro";
     const string ReleaseAsset="SekaiStorySkip-win-x64.zip";
-
-    static Version CurrentVersion=>Normalize(typeof(Program).Assembly.GetName().Version??new Version(0,0,0));
-    static Version Normalize(Version v)=>new(v.Major,v.Minor,Math.Max(v.Build,0));
 
     // Only release packages replace themselves; source builds remain untouched.
     static bool IsReleaseInstall=>typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()

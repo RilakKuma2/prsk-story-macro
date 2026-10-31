@@ -23,6 +23,7 @@ internal static partial class Program
         readonly CancellationTokenSource closing = new();
         readonly ConcurrentQueue<string> logs = new();
         readonly ConcurrentDictionary<int, string> states = new(), errors = new();
+        readonly ConcurrentDictionary<int, string> commands = new();
         readonly ConcurrentDictionary<int, string> previewErrors = new();
         volatile Vm[] instances = [];
         volatile int selection = -1;
@@ -59,6 +60,11 @@ internal static partial class Program
             app.MapGet("/", () => Results.Content(Resource("web.index.html").Replace("__PANEL_TOKEN__", Token), "text/html; charset=utf-8"));
             app.MapGet("/base.css", () => Results.Content(Resource("web.base.css"), "text/css; charset=utf-8"));
             app.MapGet("/i18n.js",()=>Results.Content(Resource("web.i18n.js"),"application/javascript; charset=utf-8"));
+            app.MapGet("/api/update", async () =>
+            {
+                try { return Results.Json(await ReadUpdateInfo()); }
+                catch (Exception ex) { return Results.Json(new { error = T("업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.", "更新を確認できませんでした。接続を確認してください。", "Could not check for updates. Check your connection."), detail = ex.Message }, statusCode: 503); }
+            });
             app.MapGet("/app-icon.png",()=>Results.Stream(Assembly.GetExecutingAssembly().GetManifestResourceStream("web.app-icon.png")!,"image/png"));
             app.MapGet("/example/{kind}", (string kind) => kind is "all" or "one" ? Results.File(Path.Combine(Root,"tests","fixtures",kind=="all"?"catalogue-after-completion.png":"top-story-episodes.png"),"image/png") : Results.NotFound());
             app.MapGet("/api/state", (HttpContext context) => Results.Json(new
@@ -70,6 +76,7 @@ internal static partial class Program
                 {
                     vm.Index, vm.Name, vm.Running, vm.Kind, vm.Label, selected = vm.Index == selection,
                     state = states.GetValueOrDefault(vm.Index, vm.Running ? "대기" : "꺼짐"), error = errors.GetValueOrDefault(vm.Index),
+                    singleEvent = commands.GetValueOrDefault(vm.Index) == "read-one",
                     progress = Progress.GetValueOrDefault(vm.Index), previewError = previewErrors.GetValueOrDefault(vm.Index), frame = File.Exists(FramePath(vm.Index)) ? File.GetLastWriteTimeUtc(FramePath(vm.Index)).Ticks : 0
                 }), logs = logs.ToArray()
             }));
@@ -126,6 +133,7 @@ internal static partial class Program
                 emulatorSelection=instances.Single(v=>v.Index==selection).Kind;
                 Stop.Dispose(); Stop = new();
                 states[selection] = "실행 중"; errors.TryRemove(selection, out _);
+                commands[selection] = request.Command;
                 worker = Task.Run(() => Execute(request));
                 return Results.Accepted();
             });

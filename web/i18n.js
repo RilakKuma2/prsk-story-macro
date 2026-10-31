@@ -2,6 +2,14 @@
 const LANGS={ko:"한국어",ja:"日本語",en:"English"};
 const DICT={
   "ja": {
+    "업데이트 확인": "アップデートを確認",
+    "1개 이벤스만 실행 시에는 자동 재개가 동작하지 않습니다.": "「このイベントのみ」では自動再開は動作しません。",
+    "새 버전 받기": "新バージョンを取得",
+    "새 버전 v{0}이 나왔어요. 현재 버전은 v{1}입니다.": "新しいバージョン v{0} があります。現在は v{1} です。",
+    "아직 공개된 릴리스가 없어요.": "公開済みリリースがありません。",
+    "새 버전 v{0}의 설치 파일이 아직 없습니다.": "新バージョン v{0} のインストールファイルがまだありません。",
+    "최신 버전입니다 (v{0}).": "最新バージョンです（v{0}）。",
+    "업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.": "更新を確認できませんでした。接続を確認してください。",
     "셐스토리스킵": "セカイストーリースキップ",
     "전체 이벤스": "全イベントストーリー",
     "전체 버라": "全バーチャルライブ",
@@ -13,6 +21,7 @@ const DICT={
     "스토리 완독률": "ストーリー読了率",
     "중지": "停止",
     "자동 재개": "自動再開",
+    "자동 재개를 키면 오류 시 재부팅 후 다시 스토리를 읽습니다": "自動再開をオンにすると、エラー時にゲームを再起動してストーリーを読み直します。",
     "팅기거나 오류 시 자동으로 로그인 후 스토리 진입": "終了・エラー時に再ログインしてストーリーへ移動",
     "진행 기록": "実行ログ",
     "대기 중": "待機中",
@@ -80,6 +89,14 @@ const DICT={
     "보호 재시작": "保護のため再起動"
   },
   "en": {
+    "업데이트 확인": "Check for updates",
+    "1개 이벤스만 실행 시에는 자동 재개가 동작하지 않습니다.": "Auto resume does not apply to This event only.",
+    "새 버전 받기": "Download new version",
+    "새 버전 v{0}이 나왔어요. 현재 버전은 v{1}입니다.": "Version v{0} is available. Your current version is v{1}.",
+    "아직 공개된 릴리스가 없어요.": "No public release is available yet.",
+    "새 버전 v{0}의 설치 파일이 아직 없습니다.": "The installer for version v{0} is not available yet.",
+    "최신 버전입니다 (v{0}).": "You are up to date (v{0}).",
+    "업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.": "Could not check for updates. Check your connection.",
     "셐스토리스킵": "Sekai Story Skip",
     "전체 이벤스": "All event stories",
     "전체 버라": "All virtual lives",
@@ -91,6 +108,7 @@ const DICT={
     "스토리 완독률": "Story completion",
     "중지": "Stop",
     "자동 재개": "Auto resume",
+    "자동 재개를 키면 오류 시 재부팅 후 다시 스토리를 읽습니다": "Enable auto resume to restart the game after an error and continue reading stories.",
     "팅기거나 오류 시 자동으로 로그인 후 스토리 진입": "Logs in and opens stories after a crash or error",
     "진행 기록": "Activity log",
     "대기 중": "Waiting",

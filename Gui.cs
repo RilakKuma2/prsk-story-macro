@@ -61,6 +61,8 @@ internal static partial class Program
                 };
                 view.CoreWebView2.WebMessageReceived += async (_, e) =>
                 {
+                    if(e.Source.StartsWith(url,StringComparison.Ordinal) && e.TryGetWebMessageAsString()=="check-update")
+                    { await CheckForUpdate(window,panel,true);return; }
                     if(e.Source.StartsWith(url,StringComparison.Ordinal) && e.TryGetWebMessageAsString().StartsWith("title:",StringComparison.Ordinal))
                     { window.Text=e.TryGetWebMessageAsString()[6..];return; }
                     if (e.Source.StartsWith(url, StringComparison.Ordinal) && e.TryGetWebMessageAsString() == "preview-ready")

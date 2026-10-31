@@ -28,14 +28,20 @@ internal static partial class Program
         const double gib = 1024d * 1024 * 1024;
         return new(status.TotalPhysical / gib, status.AvailablePhysical / gib);
     }
-    static int MaximumMemoryGb(double currentGb, bool running, HostMemory host) =>
-        Math.Clamp((int)Math.Floor(host.AvailableGb - Math.Max(4, host.TotalGb * .2) + (running ? currentGb : 0)), 3, 12);
+    static (int DefaultGb, int MaxGb) MacMemoryLimits(HostMemory host) =>
+        host.TotalGb <= 8 ? (3, 4) : host.TotalGb <= 16 ? (6, 8) : (8, 12);
+    static int DefaultMemoryGb(HostMemory host) => OperatingSystem.IsMacOS() ? MacMemoryLimits(host).DefaultGb : 8;
+    static int MaximumMemoryGb(double currentGb, bool running, HostMemory host) => OperatingSystem.IsMacOS()
+        ? MacMemoryLimits(host).MaxGb
+        : Math.Clamp((int)Math.Floor(host.AvailableGb - Math.Max(4, host.TotalGb * .2) + (running ? currentGb : 0)), 3, 12);
     static int TargetMemoryGb(double currentGb, bool running, HostMemory host, int requested) =>
-        Math.Min(requested is >= 3 and <= 12 ? requested : 8, MaximumMemoryGb(currentGb, running, host));
+        Math.Min(requested is >= 3 and <= 12 ? requested : DefaultMemoryGb(host), MaximumMemoryGb(currentGb, running, host));
     static int NewVmMemoryGb(HostMemory host) => Math.Clamp(TargetMemoryGb(0, false, host, 0), 3, 8);
     static bool CanSetMemory(double currentGb, int targetGb, bool running, HostMemory host) => targetGb is >= 3 and <= 12 && currentGb > 0 &&
-        (targetGb < currentGb || host.AvailableGb >= (running ? targetGb - currentGb : targetGb) + Math.Max(4, host.TotalGb * .2));
-    static bool CanIncreaseMemory(double currentGb, bool running, HostMemory host) => currentGb < 8 && CanSetMemory(currentGb, 8, running, host);
+        (OperatingSystem.IsMacOS() ? targetGb <= MacMemoryLimits(host).MaxGb :
+            targetGb < currentGb || host.AvailableGb >= (running ? targetGb - currentGb : targetGb) + Math.Max(4, host.TotalGb * .2));
+    static bool CanIncreaseMemory(double currentGb, bool running, HostMemory host) =>
+        currentGb < DefaultMemoryGb(host) && CanSetMemory(currentGb, DefaultMemoryGb(host), running, host);
     static MemorySelection? MemoryForUi(int index, bool running)
     {
         if (!MemoryReports.TryGetValue(index, out var report)) return null;
@@ -69,7 +75,9 @@ internal static partial class Program
         try
         {
             var vm = await ReadVmMemory(); var host = ReadHostMemory();
-            RecordMemory(vm, host, vm.Gb >= 8 ? "현재 RAM 유지" : CanIncreaseMemory(vm.Gb, Selected!.Running, host) ? "매크로 시작 시 8GB로 증가 가능" : "PC 여유 RAM이 부족하여 현재 설정 유지");
+            var target = TargetMemoryGb(vm.Gb, Selected!.Running, host, RequestedMemoryGb);
+            RecordMemory(vm, host, target == vm.Gb ? "현재 RAM 유지" : CanSetMemory(vm.Gb, target, Selected.Running, host)
+                ? $"매크로 시작 시 {target}GB로 조정 가능" : "PC 여유 RAM이 부족하여 현재 설정 유지");
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { Log("RAM 조회 생략 · " + ex.Message); }
     }
@@ -85,7 +93,7 @@ internal static partial class Program
             if (!OriginalEmulators.MemoryCanChange(Selected.Index)) { RecordMemory(vm, host, "다른 블루스택이 실행 중이므로 RAM 유지"); return false; }
             if (target == vm.Gb || !CanSetMemory(vm.Gb, target, Selected.Running, host))
             {
-                RecordMemory(vm, host, vm.Gb >= 8 ? "현재 RAM 유지" : "PC 여유 RAM이 부족하여 현재 설정 유지");
+                RecordMemory(vm, host, target == vm.Gb ? "현재 RAM 유지" : "PC 여유 RAM이 부족하여 현재 설정 유지");
                 return false;
             }
             Log($"VM RAM {vm.Gb:0.#}GB / PC 여유 {host.AvailableGb:0.0}GB · {target}GB로 조정합니다.");

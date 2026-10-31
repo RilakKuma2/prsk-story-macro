@@ -57,7 +57,8 @@ internal static partial class Program
     }
     static async Task SaveMemoryChoice(int gigabytes)
     {
-        if (gigabytes is < 3 or > 12) throw new InvalidOperationException("RAM은 3~12GB 범위에서 선택하세요.");
+        var maximum = OperatingSystem.IsMacOS() ? MacMemoryLimits(ReadHostMemory()).MaxGb : 12;
+        if (gigabytes < 3 || gigabytes > maximum) throw new InvalidOperationException($"RAM은 3~{maximum}GB 범위에서 선택하세요.");
         RequestedMemoryGb = gigabytes;
         await SaveRecord(SettingsPath, JsonSerializer.Serialize(new UserSettings(AutoResumeEnabled, gigabytes), new JsonSerializerOptions { WriteIndented = true }));
     }
@@ -111,7 +112,7 @@ internal static partial class Program
                 if (!singleEvent) await ApplyUnreadFilter(virtualLive);
                 Log("자동 재개 완료 · 메인 / 이벤트 스토리 진입 및 미읽음/스킵 필터 복원.");
                 if (continueAfterRecovery != null) await continueAfterRecovery();
-            }, () => AutoResumeEnabled);
+            }, () => AutoResumeEnabled, singleEvent);
         }
         finally { WorkflowActive = false; RestartAuthorized = false; Interlocked.Exchange(ref PendingProtectionReason,null); }
     }
@@ -119,7 +120,7 @@ internal static partial class Program
     // Only unknown-state failures count. Crashes/new data can recover repeatedly; reaching
     // the story catalogue clears the counter before continuing the current work.
     static async Task RunRecoveryAttempts(Func<Task> work, Func<RecoveryNeeded, Task> revoke,
-        Func<RecoveryNeeded, Task<bool>> restart, Func<Action, Task> resume, Func<bool> enabled)
+        Func<RecoveryNeeded, Task<bool>> restart, Func<Action, Task> resume, Func<bool> enabled, bool singleEvent = false)
     {
         var unknownFailures = 0;
         var next = work;
@@ -129,6 +130,8 @@ internal static partial class Program
             catch (RecoveryNeeded interruption)
             {
                 await revoke(interruption);
+                if (singleEvent)
+                    throw new OperationCanceledException(interruption.Message + " · 1개 이벤스만 실행에서는 자동 재개하지 않습니다.", interruption);
                 if (interruption.Cause == RecoveryCause.UnknownState) unknownFailures++;
                 if (unknownFailures >= 2)
                     throw new InvalidOperationException("스토리 목록 재진입에 성공하지 못한 채 상태 인식 실패가 2회 발생했습니다. 오류로 중지합니다. " + interruption.Message, interruption);

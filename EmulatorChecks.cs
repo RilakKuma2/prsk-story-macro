@@ -39,7 +39,19 @@ internal static partial class Program
         Assert(ChooseInstance([first,second],-1)==-1,"multiple running instances require selection");
         Assert(ChooseInstance([first,second],second.Index)==second.Index,"chosen running VM retained");
         Assert(ChooseInstance([],0)==-1 && ChooseInstance([off],-1)==0,"empty and single offline selection");
-        Assert(NewVmMemoryGb(new(32,20))==8 && NewVmMemoryGb(new(32,12))==5 && NewVmMemoryGb(new(32,8))==3,"new VM auto RAM stays within 3 to 8GB");
+        if (OperatingSystem.IsMacOS())
+        {
+            foreach (var (total, target, maximum) in new[] { (8,3,4), (16,6,8), (24,8,12), (32,8,12), (64,8,12) })
+            {
+                var host = new HostMemory(total, .5);
+                Assert(TargetMemoryGb(4,true,host,0)==target && NewVmMemoryGb(host)==target,$"Mac {total}GB defaults use total RAM despite low available RAM");
+                Assert(MaximumMemoryGb(4,true,host)==maximum && MaximumMemoryGb(0,false,host)==maximum,$"Mac {total}GB cap is independent of VM running state");
+                Assert(TargetMemoryGb(4,true,host,12)==maximum,$"Mac {total}GB clamps saved choices to its cap");
+                Assert(CanSetMemory(4,target,false,host) && !CanSetMemory(4,maximum+1,true,host),$"Mac {total}GB applies its tier and rejects excess RAM");
+            }
+            Assert(TargetMemoryGb(4,true,new(16,.5),5)==5,"Mac preserves a valid explicit RAM choice");
+        }
+        else Assert(NewVmMemoryGb(new(32,20))==8 && NewVmMemoryGb(new(32,12))==5 && NewVmMemoryGb(new(32,8))==3,"new VM auto RAM stays within 3 to 8GB");
         Assert(OriginalEmulators.NewVmDiskBytes==(12L<<30) && !OriginalEmulators.HasCreationSpace((14L<<30)-1) && OriginalEmulators.HasCreationSpace(14L<<30),"12GB creation estimate plus original 2GB margin");
         Assert(IsEmulatorDownload(MuMuDownloadUrl) && !IsEmulatorDownload("file:///C:/Windows/System32/cmd.exe"),"official download link only");
         foreach(var command in new[]{"read-current","read-one","restart-read"}) Assert(IsPanelCommand(command),"start "+command);
@@ -64,6 +76,8 @@ internal static partial class Program
             Reject(()=>ValidateProcessArgs(["-s",Serial,"shell","am force-stop "+Package],false),"manual restart cannot repeat without authorization");
         }
         finally { Selected=saved; AutoResumeEnabled=auto; ManualRestartAuthorized=false; }
+        VerifySingleEventRecovery(Assert).GetAwaiter().GetResult();
+        VerifyUpdateInfo(Assert);
         Log($"VM/시작 모드 검사 {checks}개 통과");
     }
 }
