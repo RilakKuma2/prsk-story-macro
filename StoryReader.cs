@@ -32,6 +32,32 @@ internal static partial class Program
     static bool IsStoryVoice(Bitmap screen) =>
         Matches(screen, new("voice-heading", "story-voice-heading.png", 0, 0, 256, 127, 447, 19)) &&
         Matches(screen, new("no-voice", "story-no-voice.png", 0, 0, 438, 395, 84, 20));
+    static bool IsStoryMvPause(Bitmap screen) =>
+        Matches(screen, new("mv-pause-text", "story-mv-pause-text.png", 0, 0, 384, 234, 182, 36)) &&
+        Matches(screen, new("mv-pause-skip", "story-mv-pause-skip.png", 0, 0, 359, 310, 64, 16));
+    static bool ReadingMainStory;
+    static bool HasMainStoryBadgeOffset(Bitmap screen)
+    {
+        if (!IsEpisodeList(screen)) return false;
+        using var unread = new Bitmap(Path.Combine(Root, "templates", "story-unread-badge.png"));
+        for (var y = 75; y < 490 - unread.Height; y++)
+            for (var x = 874; x <= 877; x++)
+                if (DifferenceAt(screen, unread, x, y, unread.Width, unread.Height) < 9) return true;
+        using var skip = new Bitmap(Path.Combine(Root, "templates", "story-skip-badge.png"));
+        var hasMainSkip = false;
+        for (var y = 75; y < 490 - skip.Height; y++)
+            for (var x = 834; x <= 846; x++)
+            {
+                var diff = DifferenceAt(screen, skip, x, y, skip.Width, skip.Height);
+                if (diff < 9) return false;
+                if (diff < 16) hasMainSkip = true;
+            }
+        return hasMainSkip;
+    }
+    static bool IsMainStoryEpisodeList(Bitmap screen) =>
+        IsEpisodeList(screen) &&
+        (HasMainStoryBadgeOffset(screen) ||
+         Matches(screen, new("unit-main-banner", "unit-main-story-banner.png", 0, 0, 88, 493, 114, 18)));
     static bool StoryContinuousChecked(Bitmap screen)
     {
         var pink = 0;
@@ -49,7 +75,7 @@ internal static partial class Program
     }
     static bool IsEpisodeList(Bitmap screen)
     {
-        if (screen.Width != 960 || screen.Height != 540 || IsStoryVoice(screen) || IsStoryRewardsBanner(screen) ||
+        if (screen.Width != 960 || screen.Height != 540 || IsStoryVoice(screen) || IsStoryMvPause(screen) || IsStoryRewardsBanner(screen) ||
             IsStoryReceipt(screen) || IsStoryReward(screen) || IsReceivedItems(screen) || FindNoticeAction(screen) != null) return false;
         return HasEpisodeListAnchor(screen);
     }
@@ -103,7 +129,7 @@ internal static partial class Program
         var ink = samples.First(p => p.Ink);
         for (var top = 75; top + glyph.Height < 490; top++)
         {
-            foreach (var left in new[] { 676, 678, 680, 682, 684 })
+            foreach (var left in new[] { 672, 674, 676, 678, 680, 682, 684 })
             {
                 if (!White(screen.GetPixel(left + ink.X, top + ink.Y))) continue;
                 var bad = 0;
@@ -124,7 +150,7 @@ internal static partial class Program
         using var expected = new Bitmap(Path.Combine(Root, "templates", skip ? "story-skip-badge.png" : "story-unread-badge.png"));
         var limit = skip ? 16 : 9;
         for (var y = 75; y < 490 - expected.Height; y++)
-            for (var x = skip ? 834 : 878; x <= (skip ? 846 : 884); x++)
+            for (var x = skip ? 834 : 874; x <= (skip ? 846 : 884); x++)
                 if (DifferenceAt(screen, expected, x, y, expected.Width, expected.Height) < limit)
                 { if (rows.Count == 0 || y - rows[^1] > 12) rows.Add(y); break; }
         if (rows.Count == 0) return rows;
@@ -143,6 +169,7 @@ internal static partial class Program
         if (IsStoryRewardsBanner(screen)) return new("story-rewards-banner-close", 480, 315);
         if (IsStoryVoice(screen)) return StoryContinuousOptionVisible(screen) && !StoryContinuousChecked(screen)
             ? new("story-continuous-on", 372, 355) : new("story-no-voice", 480, 406);
+        if (ReadingMainStory && IsStoryMvPause(screen)) return new("story-mv-skip", 390, 318);
         if (IsStoryReceipt(screen)) return new("story-receipt-ok", 480, 492);
         if (IsStoryReward(screen)) return new("story-reward-ok", 480, 420);
         if (IsReceivedItems(screen)) return new("story-received-ok", 480, 491);
@@ -183,6 +210,7 @@ internal static partial class Program
     {
         if (IsNewDataNotice(screen)) return "new-data-notice";
         if (FindStoryMenuClose(screen) != null) return "story-menu-open";
+        if (IsStoryMvPause(screen)) return "mv-pause-dialog";
         if (!IsStoryReader(screen)) return "ellipsis-not-recognized";
         if (FindNoticeAction(screen) != null) return "notice-open";
         if (IsStoryVoice(screen)) return "voice-dialog";
@@ -191,6 +219,31 @@ internal static partial class Program
         return null;
     }
     static bool CanTapStory(Bitmap screen) => ReaderBlockReason(screen) == null;
+    static bool CanProbeStoryMv(Bitmap screen) =>
+        screen.Width == 960 && screen.Height == 540 && !IsStoryLoading(screen) && !IsStoryReader(screen) &&
+        FindStoryMenuClose(screen) == null && FindNoticeAction(screen) == null && FindReaderAction(screen) == null &&
+        !IsEpisodeList(screen) && ProtectedScreenReason(screen) == null;
+    static bool ShouldProbeStoryMv(Bitmap screen, DateTime transitionSince, DateTime now, int probeCount) =>
+        ReadingMainStory && probeCount < 2 && now - transitionSince >= TimeSpan.FromSeconds((probeCount + 1) * 10) && CanProbeStoryMv(screen);
+    static async Task<bool> ProbeStoryMvPause()
+    {
+        if (!ReadingMainStory) return false;
+        await Guard();
+        if (!(await Foreground()).Contains(Package + "/")) return false;
+        using var verify = await Capture();
+        if (!CanProbeStoryMv(verify)) return false;
+        Log("메인스토리 … 10초 미감지 · MV 확인을 위해 화면 중앙 2회 터치");
+        for (var tap = 0; tap < 2; tap++)
+        {
+            Stop.Token.ThrowIfCancellationRequested();
+            AuthorizedInput = "input tap 480 270";
+            try { await Shell(AuthorizedInput); }
+            finally { AuthorizedInput = null; }
+            if (tap == 0) await Task.Delay(250, Stop.Token);
+        }
+        await Task.Delay(450, Stop.Token);
+        return true;
+    }
     static async Task PrepareReaderTouch()
     {
         await Guard();
@@ -304,18 +357,19 @@ internal static partial class Program
         var lastKnown = DateTime.UtcNow; var lastAction = DateTime.MinValue;
         var listFrames = 0;
         DateTime? transitionSince = null;
+        var mvProbeCount = 0;
         DateTime? menuOpenedAt = null;
         while (true)
         {
             await Guard();
             await EnsureGameForeground();
             using var screen = await Capture();
-            if (await DismissNotice(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; menuOpenedAt = null; continue; }
+            if (await DismissNotice(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0; menuOpenedAt = null; continue; }
             var menuWasOpen = menuOpenedAt != null;
             var menuClose = DelayedStoryMenuClose(screen,DateTime.UtcNow,ref menuOpenedAt);
             if (menuOpenedAt != null)
             {
-                lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null;
+                lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0;
                 if (!menuWasOpen) Log("오토·스킵 버튼으로 스토리 메뉴 확인 · 20초 후 우상단 X 닫기");
                 if (menuClose != null && DateTime.UtcNow - lastAction > TimeSpan.FromSeconds(2) &&
                     await GuardedTap(menuClose,FindStoryMenuClose))
@@ -329,20 +383,26 @@ internal static partial class Program
             var action = FindReaderAction(screen);
             if (action != null)
             {
-                lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null;
+                lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0;
                 if (DateTime.UtcNow - lastAction > TimeSpan.FromSeconds(2) && await GuardedTap(action, FindReaderAction)) lastAction = DateTime.UtcNow;
             }
-            else if (CanTapStory(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; await ContinuousStoryTaps(); }
+            else if (CanTapStory(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0; await ContinuousStoryTaps(); }
             else if (IsEpisodeList(screen))
             {
-                transitionSince = null;
+                transitionSince = null; mvProbeCount = 0;
                 if (++listFrames >= 3) { Log("에피소드 목록 복귀 · 현재 위치부터 아래로 새 스토리/SKIP 검사"); return; }
             }
             else
             {
                 listFrames = 0;
-                if (transitionSince == null) { transitionSince = DateTime.UtcNow; Log("스토리 … 사라짐 · 연타 해제, 빠른 화면 재확인"); }
-                if (DateTime.UtcNow - transitionSince > TimeSpan.FromSeconds(30))
+                var now = DateTime.UtcNow;
+                if (transitionSince == null) { transitionSince = now; mvProbeCount = 0; Log("스토리 … 사라짐 · 연타 해제, 빠른 화면 재확인"); }
+                else if (ShouldProbeStoryMv(screen, transitionSince.Value, now, mvProbeCount))
+                {
+                    mvProbeCount++;
+                    if (await ProbeStoryMvPause()) continue;
+                }
+                if (now - transitionSince > TimeSpan.FromSeconds(30))
                 {
                     CopyEvidence(ShotPath, Path.Combine(Artifacts, $"instance-{Selected!.Index}-reader-timeout.png"));
                     throw new RecoveryNeeded(RecoveryCause.UnknownState, "스토리 … / 보상 / 에피소드 목록이 30초 동안 확인되지 않았습니다.");

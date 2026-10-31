@@ -8,8 +8,15 @@ internal static partial class Program
         using var mixed = new Bitmap(Path.Combine(Root,"tests","fixtures","episode-lock-with-skip.png"));
         using var lockedOnly = new Bitmap(Path.Combine(Root,"tests","fixtures","episode-only-locked-remains.png"));
         using var unitMainSkip = new Bitmap(Path.Combine(Root,"tests","fixtures","unit-main-story-skip.png"));
+        using var unitMainUnread = new Bitmap(Path.Combine(Root,"tests","fixtures","unit-main-story-unread.png"));
         assert(EpisodeBadgeRows(unitMainSkip,true).Count==5 && EpisodeBadgeRows(unitMainSkip,false).Count==0 &&
+            IsMainStoryEpisodeList(unitMainSkip) && HasMainStoryBadgeOffset(unitMainSkip) &&
             FindEpisodeToRead(unitMainSkip,true) is {X:640,Y:>=445 and <=465},"unit main story SKIP badges are recognized on all five visible rows");
+        assert(EpisodeBadgeRows(unitMainUnread,true).Count==0 && EpisodeBadgeRows(unitMainUnread,false).Count==1 &&
+            IsMainStoryEpisodeList(unitMainUnread) && HasMainStoryBadgeOffset(unitMainUnread) &&
+            FindEpisodeToRead(unitMainUnread,true) is {X:640,Y:>=110 and <=126},"fresh account unit main story unread badge without SKIP selects episode 1");
+        assert(!IsMainStoryEpisodeList(redOnly) && !IsMainStoryEpisodeList(mixed) && !IsMainStoryEpisodeList(lockedOnly),
+            "event story episode lists are distinguished from unit main stories");
         assert(EpisodeBadgeRows(redOnly,true).Count==0 && EpisodeBadgeRows(redOnly,false).Count==1 &&
             FindEpisodeToRead(redOnly,true) is {Y:>=100 and <150},"red exclamation alone selects the unlocked latest episode without SKIP");
         assert(EpisodeLockedRows(redOnly).Count==0,"unlocked red-badge row is not classified as locked");
@@ -28,13 +35,24 @@ internal static partial class Program
             "the loaded red-only episode opens immediately without scrolling");
 
         observations=0;scrolls=0;
-        var scrolledToBottom=await ScanEpisodePages(atBottom =>
+        var scrolledToBottom=await ScanEpisodePages(canOpen =>
         {
             observations++;
-            return Task.FromResult(new EpisodePage(true,false,atBottom,false,!atBottom));
+            return Task.FromResult(new EpisodePage(true,false,canOpen,false,!canOpen));
         },() => { scrolls++;return Task.FromResult(scrolls<3); });
         assert(observations==4 && scrolls==3 && scrolledToBottom.HasSkip && !scrolledToBottom.BottomReached,
             "lower-page SKIP episodes keep scrolling down to episode 1 before opening");
+
+        observations=0;scrolls=0;var scrollsUp=0;
+        var scrolledDownThenUp=await ScanEpisodePages(canOpen =>
+        {
+            observations++;
+            if (observations==1) return Task.FromResult(new EpisodePage(true,false,false,false,true));
+            if (scrollsUp<2) return Task.FromResult(new EpisodePage(false,false,false,false));
+            return Task.FromResult(new EpisodePage(true,false,canOpen,false,!canOpen));
+        },() => { scrolls++;return Task.FromResult(scrolls<2); },() => { scrollsUp++;return Task.FromResult(true); });
+        assert(scrolls==2 && scrollsUp==2 && scrolledDownThenUp.HasSkip && !scrolledDownThenUp.BottomReached,
+            "when episode 1 at the bottom has no SKIP, scrolling up slightly finds and opens the lowest SKIP episode");
 
         observations=0;scrolls=0;
         var blocked=await ScanEpisodePages(() => { observations++;return Task.FromResult(new EpisodePage(false,false,false,true)); },

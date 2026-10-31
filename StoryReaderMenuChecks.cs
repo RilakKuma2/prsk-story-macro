@@ -54,5 +54,34 @@ internal static partial class Program
             }
         }
         finally { AutoResumeEnabled = saved; }
+
+        using var mvPause = new Bitmap(Path.Combine(Root,"tests","fixtures","story-mv-pause.png"));
+        using var darkFrame = new Bitmap(Path.Combine(Root,"tests","fixtures","virtual-live-dark.png"));
+        var transitionStart = DateTime.UtcNow;
+        var savedMainStory = ReadingMainStory;
+        try
+        {
+            ReadingMainStory = false;
+            assert(IsStoryMvPause(mvPause) && FindReaderAction(mvPause)==null &&
+                !ShouldProbeStoryMv(darkFrame,transitionStart,transitionStart.AddSeconds(10),0),
+                "event stories do not probe or skip in-story MV pause dialogs");
+            ReadingMainStory = true;
+            assert(IsStoryMvPause(mvPause) && FindNoticeAction(mvPause)==null &&
+                FindReaderAction(mvPause)==new HomeAction("story-mv-skip",390,318) &&
+                ReaderBlockReason(mvPause)=="mv-pause-dialog" && !CanTapStory(mvPause),
+                "in-story MV pause dialog skips via the left button during main stories instead of closing X");
+            using var mvMissingSkip = new Bitmap(mvPause);
+            using (var graphics = Graphics.FromImage(mvMissingSkip)) graphics.FillRectangle(Brushes.Black,350,305,80,25);
+            assert(!IsStoryMvPause(mvMissingSkip),"MV pause skip requires the skip button label");
+            assert(!ShouldProbeStoryMv(darkFrame,transitionStart,transitionStart.AddSeconds(9),0) &&
+                ShouldProbeStoryMv(darkFrame,transitionStart,transitionStart.AddSeconds(10),0) &&
+                !ShouldProbeStoryMv(darkFrame,transitionStart,transitionStart.AddSeconds(15),1) &&
+                ShouldProbeStoryMv(darkFrame,transitionStart,transitionStart.AddSeconds(20),1) &&
+                !ShouldProbeStoryMv(darkFrame,transitionStart,transitionStart.AddSeconds(30),2) &&
+                !ShouldProbeStoryMv(reader,transitionStart,transitionStart.AddSeconds(12),0) &&
+                !ShouldProbeStoryMv(mvPause,transitionStart,transitionStart.AddSeconds(12),0),
+                "MV center double-tap probe fires at 10s/20s only while reading a main story and reader UI is absent");
+        }
+        finally { ReadingMainStory = savedMainStory; }
     }
 }
