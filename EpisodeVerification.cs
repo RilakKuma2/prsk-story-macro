@@ -4,7 +4,7 @@ using System.Text.Json;
 internal static partial class Program
 {
     record EpisodeVerification(bool HasSkip, bool HasUnread, bool BottomReached, int Pages, bool HasLocked = false);
-    record EpisodePage(bool HasSkip, bool HasUnread, bool Opened, bool HasLocked);
+    record EpisodePage(bool HasSkip, bool HasUnread, bool Opened, bool HasLocked, bool NeedsLowerCheck = false);
     static async Task<Bitmap> CaptureUncoveredEpisodeList()
     {
         var deadline = DateTime.UtcNow.AddSeconds(30);
@@ -37,20 +37,26 @@ internal static partial class Program
         Log("남은 화 확인 · 이전 화 쪽으로 목록 이동");
         await Task.Delay(650, Stop.Token);
     }
-    static async Task<EpisodeVerification> ScanEpisodePages(Func<Task<EpisodePage>> observe,
+    static Task<EpisodeVerification> ScanEpisodePages(Func<Task<EpisodePage>> observe,
+        Func<Task<bool>> scrollDownChanged) => ScanEpisodePages(_ => observe(), scrollDownChanged);
+    static async Task<EpisodeVerification> ScanEpisodePages(Func<bool, Task<EpisodePage>> observe,
         Func<Task<bool>> scrollDownChanged)
     {
-        var stable = 0; var hasLocked = false;
+        var stable = 0; var hasLocked = false; var atBottom = false;
         for (var page = 0; page < 80; page++)
         {
-            var current = await observe();
+            var current = await observe(atBottom);
             hasLocked |= current.HasLocked;
             if (current.HasSkip || current.HasUnread)
             {
                 if (current.Opened) return new(current.HasSkip,current.HasUnread,false,page+1,hasLocked);
+                if (!current.NeedsLowerCheck) { stable = 0; continue; }
+                atBottom = !await scrollDownChanged();
                 stable = 0; continue;
             }
-            stable = await scrollDownChanged() ? 0 : stable + 1;
+            var changed = await scrollDownChanged();
+            atBottom = !changed;
+            stable = changed ? 0 : stable + 1;
             if (stable < 2) continue;
             return new(false,false,true,page+1,hasLocked);
         }
@@ -60,24 +66,33 @@ internal static partial class Program
     {
         var folder = Path.Combine(Artifacts,"story-check",DateTime.Now.ToString("yyyyMMdd-HHmmss"));
         var page = 0;
-        var result = await ScanEpisodePages(async () =>
+        var result = await ScanEpisodePages(async atBottom =>
         {
             using var screen = await CaptureUncoveredEpisodeList();
             var locked = EpisodeLockedRows(screen);
             var skips = EpisodeBadgeRows(screen,true,locked); var unread = EpisodeBadgeRows(screen,false,locked);
             CopyEvidence(ShotPath,Path.Combine(folder,$"page-{page++:D2}.png"));
             var opened = false;
+            var needsLowerCheck = false;
             if (skips.Count > 0 || unread.Count > 0)
             {
-                var action = FindEpisodeToRead(screen,true);
-                if (action != null && await GuardedTap(action,s => FindEpisodeToRead(s,true)))
+                var lowest = skips.Concat(unread).Max();
+                if (lowest >= 250 && !atBottom)
                 {
-                    opened = true;
-                    Log("SKIP/새 스토리 발견 · 현재 페이지에서 이어 읽기");
-                    await Task.Delay(800,Stop.Token);
+                    needsLowerCheck = true;
+                }
+                else
+                {
+                    var action = FindEpisodeToRead(screen,true);
+                    if (action != null && await GuardedTap(action,s => FindEpisodeToRead(s,true)))
+                    {
+                        opened = true;
+                        Log("SKIP/새 스토리 발견 · 가장 아래 화부터 이어 읽기");
+                        await Task.Delay(800,Stop.Token);
+                    }
                 }
             }
-            return new EpisodePage(skips.Count>0,unread.Count>0,opened,locked.Count>0);
+            return new EpisodePage(skips.Count>0,unread.Count>0,opened,locked.Count>0,needsLowerCheck);
         },async () =>
         {
             using var before = await CaptureUncoveredEpisodeList();

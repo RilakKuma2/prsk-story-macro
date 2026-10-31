@@ -138,22 +138,36 @@ internal static partial class OriginalEmulators
     // ---- Settings
 
     // The macro needs 960x540 at 160 DPI with ADB on. A running BlueStacks rewrites bluestacks.conf (it holds every
-    // instance), so the settings are only checked here and changed in BlueStacks' own settings window.
-    static void RequireBlueStacksSettings(int instance)
+    // instance), so the file is updated while no player runs; otherwise the settings are checked and reported.
+    static string PrepareBlueStacks(int instance)
     {
         var target=BlueStacksInstanceOf(instance);
         var conf=ReadBlueStacksConf();
-        string Value(string key)=>conf.GetValueOrDefault($"bst.instance.{target.Id}.{key}")??"";
-        var wrong=new List<string>();
-        if(Value("fb_width")!="960" || Value("fb_height")!="540") wrong.Add(T("해상도 960×540","解像度 960×540","resolution 960×540"));
-        if(Value("dpi")!="160") wrong.Add("DPI 160");
-        if(conf.GetValueOrDefault("bst.enable_adb_access")!="1") wrong.Add(T("ADB 켜기","ADBをオン","ADB on"));
-        if(wrong.Count>0) throw new InvalidOperationException(T($"블루스택 {target.Name} 설정을 바꿔야 해요: {string.Join(", ",wrong)}. 블루스택 설정의 디스플레이·고급 탭에서 바꾼 뒤 다시 시도하세요.",
-            $"BlueStacks {target.Name} の設定を変える必要があります: {string.Join("、",wrong)}。BlueStacksの設定のディスプレイ・詳細タブで変えてからやり直してください。",
-            $"BlueStacks {target.Name} needs: {string.Join(", ",wrong)}. Change them in BlueStacks settings (Display, Advanced) and try again."));
+        var prefix=$"bst.instance.{target.Id}.";
+        var wanted=new Dictionary<string,string> { [prefix+"fb_width"]="960",[prefix+"fb_height"]="540",[prefix+"dpi"]="160",["bst.enable_adb_access"]="1" };
+        var wrong=wanted.Where(w=>conf.GetValueOrDefault(w.Key)!=w.Value).ToList();
+        if(wrong.Count==0) return "960x540 DPI160, ADB enabled.";
+        if(BlueStacksProcesses().Count==0)
+        {
+            if(wrong.Any(w=>w.Key.EndsWith(".fb_width",StringComparison.Ordinal) || w.Key.EndsWith(".fb_height",StringComparison.Ordinal)))
+                wrong.Add(new(prefix+"custom_resolution_selected","1"));
+            lock(BlueStacksConfLock)
+            {
+                var lines=File.ReadAllLines(BlueStacksConf).ToList();
+                foreach(var (key,value) in wrong)
+                {
+                    var at=lines.FindIndex(l=>l.StartsWith(key+"=",StringComparison.Ordinal));
+                    if(at>=0) lines[at]=$"{key}=\"{value}\""; else lines.Add($"{key}=\"{value}\"");
+                }
+                File.WriteAllLines(BlueStacksConf,lines);
+                BlueStacksConfCache=(DateTime.MinValue,[]);
+            }
+            return "960x540 DPI160, ADB enabled (bluestacks.conf updated).";
+        }
+        throw new InvalidOperationException(T($"블루스택 {target.Name} 설정을 바꿔야 해요: 해상도 960×540, DPI 160, ADB 켜기. 다른 블루스택 창을 모두 끄면 매크로가 자동으로 바꾸고 재시작합니다.",
+            $"BlueStacks {target.Name} の設定を変える必要があります: 解像度 960×540、DPI 160、ADBをオン。他のBlueStacksウィンドウをすべて閉じるとマクロが自動で変更して再起動します。",
+            $"BlueStacks {target.Name} needs 960×540, DPI 160 and ADB on. Close other BlueStacks windows and the macro will update and restart it automatically."));
     }
-
-    static string PrepareBlueStacks(int instance) { RequireBlueStacksSettings(instance); return "960x540 DPI160, ADB enabled."; }
     static string BlueStacksVmDir(int instance)=>Path.Combine(BlueStacksData,"Engine",BlueStacksInstanceOf(instance).Id);
 
     static string? BlueStacksVersionCache;

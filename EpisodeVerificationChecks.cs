@@ -7,6 +7,9 @@ internal static partial class Program
         using var redOnly = new Bitmap(Path.Combine(Root,"tests","fixtures","latest-episode-unread-only.png"));
         using var mixed = new Bitmap(Path.Combine(Root,"tests","fixtures","episode-lock-with-skip.png"));
         using var lockedOnly = new Bitmap(Path.Combine(Root,"tests","fixtures","episode-only-locked-remains.png"));
+        using var unitMainSkip = new Bitmap(Path.Combine(Root,"tests","fixtures","unit-main-story-skip.png"));
+        assert(EpisodeBadgeRows(unitMainSkip,true).Count==5 && EpisodeBadgeRows(unitMainSkip,false).Count==0 &&
+            FindEpisodeToRead(unitMainSkip,true) is {X:640,Y:>=445 and <=465},"unit main story SKIP badges are recognized on all five visible rows");
         assert(EpisodeBadgeRows(redOnly,true).Count==0 && EpisodeBadgeRows(redOnly,false).Count==1 &&
             FindEpisodeToRead(redOnly,true) is {Y:>=100 and <150},"red exclamation alone selects the unlocked latest episode without SKIP");
         assert(EpisodeLockedRows(redOnly).Count==0,"unlocked red-badge row is not classified as locked");
@@ -23,6 +26,15 @@ internal static partial class Program
         },() => { scrolls++;return Task.FromResult(false); });
         assert(observations==1 && scrolls==0 && resumed.HasUnread && !resumed.BottomReached,
             "the loaded red-only episode opens immediately without scrolling");
+
+        observations=0;scrolls=0;
+        var scrolledToBottom=await ScanEpisodePages(atBottom =>
+        {
+            observations++;
+            return Task.FromResult(new EpisodePage(true,false,atBottom,false,!atBottom));
+        },() => { scrolls++;return Task.FromResult(scrolls<3); });
+        assert(observations==4 && scrolls==3 && scrolledToBottom.HasSkip && !scrolledToBottom.BottomReached,
+            "lower-page SKIP episodes keep scrolling down to episode 1 before opening");
 
         observations=0;scrolls=0;
         var blocked=await ScanEpisodePages(() => { observations++;return Task.FromResult(new EpisodePage(false,false,false,true)); },

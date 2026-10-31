@@ -122,9 +122,10 @@ internal static partial class Program
         var rows = new List<int>();
         if (!IsEpisodeList(screen)) return rows;
         using var expected = new Bitmap(Path.Combine(Root, "templates", skip ? "story-skip-badge.png" : "story-unread-badge.png"));
+        var limit = skip ? 16 : 9;
         for (var y = 75; y < 490 - expected.Height; y++)
             for (var x = skip ? 834 : 878; x <= (skip ? 846 : 884); x++)
-                if (DifferenceAt(screen, expected, x, y, expected.Width, expected.Height) < 9)
+                if (DifferenceAt(screen, expected, x, y, expected.Width, expected.Height) < limit)
                 { if (rows.Count == 0 || y - rows[^1] > 12) rows.Add(y); break; }
         if (rows.Count == 0) return rows;
         lockedRows ??= EpisodeLockedRows(screen);

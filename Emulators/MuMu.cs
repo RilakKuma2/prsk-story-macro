@@ -60,7 +60,7 @@ internal static partial class OriginalEmulators
     // no vertical sync, system sound off).
     static async Task<string> PrepareMuMu(int local,bool running)
     {
-        var resolution=new Dictionary<string,string> { ["resolution_width"]="960",["resolution_height"]="540",["resolution_dpi"]="160" };
+        var resolution=new Dictionary<string,string> { ["resolution_mode"]="custom",["resolution_width.custom"]="960",["resolution_height.custom"]="540",["resolution_dpi.custom"]="160",["resolution_width"]="960",["resolution_height"]="540",["resolution_dpi"]="160" };
         var light=new Dictionary<string,string> { ["performance_mode"]="custom",["performance_cpu.custom"]=LightCpus.ToString(),
             ["performance_mem.custom"]=(LightMemoryMb/1024).ToString(),["max_frame_rate"]=LightFps.ToString(),["vertical_sync"]="false",["system_volume_close"]="true" };
         var current=await MuMu(TimeSpan.FromSeconds(30),["setting","-v",local.ToString(),..resolution.Keys.Concat(light.Keys).SelectMany(k=>new[]{"-k",k})]);

@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>SekaiStorySkip.ico</ApplicationIcon>
-    <Version>0.2.2</Version>
+    <Version>0.3.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ReleasePackage" Value="$(ReleasePackage)" />

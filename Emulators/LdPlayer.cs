@@ -102,6 +102,6 @@ internal static partial class OriginalEmulators
             config["basicSettings.fps"]=LightFps; config["basicSettings.verticalSync"]=false;
             await File.WriteAllTextAsync(path,config.ToJsonString(JsonOptions));
         }
-        return $"960x540 DPI160, {LightCpus} CPU, {LightMemoryMb} MB, {LightFps} FPS, ADB enabled. Original config backed up.";
+        return $"960x540 DPI160, {LightCpus} CPU, {LightMemoryMb} MB, {LightFps} FPS, ADB enabled{(!matches?" (LD settings updated)":"")}. Original config backed up.";
     }
 }

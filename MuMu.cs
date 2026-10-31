@@ -63,29 +63,43 @@ internal static partial class Program
         if ((await Shell("getprop sys.boot_completed")).Trim() != "1") throw new InvalidOperationException("안드로이드 부팅 대기 중입니다.");
     }
     // Original Resume.cs + EnsureResolution flow, using its provider-specific preparation and ADB.
-    static async Task EnsureRunning(bool launchGame = true)
+    static async Task<bool> EnsureRunning(bool launchGame = true)
     {
+        var restarted = false;
         Selected = await Guard(false);
         if (!Selected.Running)
         {
-            await OriginalEmulators.Prepare(Selected.Index, false);
+            var prepared = await OriginalEmulators.Prepare(Selected.Index, false);
+            if (prepared.Contains("updated", StringComparison.OrdinalIgnoreCase))
+            {
+                var notice = "해상도·DPI가 맞지 않아 960×540 / DPI 160으로 앱플레이어 설정을 바꾸고 시작합니다.";
+                Log(notice);
+                NotifySink?.Invoke(notice);
+            }
+            StatusSink?.Invoke("앱플레이어 시작 중");
             Log($"{Selected.Label} · 선택한 인스턴스 부팅");
             await OriginalEmulators.Launch(Selected.Index);
+            restarted = true;
         }
         await WaitVmBoot();
         var resolution = await Shell("wm size; wm density");
         if (resolution.Contains("Physical size") && !OriginalEmulators.ResolutionOk(resolution))
         {
-            if (!OriginalEmulators.CanFixResolution(Selected!.Index)) throw new InvalidOperationException("블루스택 해상도를 960×540, DPI 160으로 설정하세요.");
-            Log("원본 VM 설정 적용 · 960×540 / DPI 160으로 재시작");
+            if (!OriginalEmulators.CanFixResolution(Selected!.Index)) throw new InvalidOperationException("다른 블루스택 창이 켜져 있어 해상도·DPI를 자동 변경할 수 없습니다. 다른 블루스택을 끄고 다시 시도하세요.");
+            var notice = "해상도·DPI가 맞지 않아 960×540 / DPI 160으로 앱플레이어 설정을 바꾸고 재시작합니다.";
+            StatusSink?.Invoke("해상도·DPI 변경 및 재시작 중");
+            Log(notice);
+            NotifySink?.Invoke(notice);
             await OriginalEmulators.Shutdown(Selected!.Index);
             await Guard(false);
             await OriginalEmulators.Prepare(Selected.Index, false);
             await OriginalEmulators.Launch(Selected.Index);
             await WaitVmBoot();
             if (!OriginalEmulators.ResolutionOk(await Shell("wm size; wm density"))) throw new InvalidOperationException("VM 해상도 설정이 반영되지 않았습니다.");
+            restarted = true;
         }
-        if (!launchGame) return;
+        StatusSink?.Invoke("실행 중");
+        if (!launchGame) return restarted;
         var current = await Foreground();
         if(IsGoogleSignIn(current))current=await LeaveGoogleSignIn(current);
         // Original Google Play sign-in handling is completed by ReturnHome's Android BACK.
@@ -93,7 +107,9 @@ internal static partial class Program
         {
             Log("기존 계정으로 셐 실행");
             await Shell($"monkey -p {Package} -c android.intent.category.LAUNCHER 1");
+            restarted = true;
         }
+        return restarted;
     }
     static async Task WaitVmBoot()
     {

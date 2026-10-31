@@ -52,10 +52,11 @@ internal static partial class OriginalEmulators
             if (DateTime.UtcNow > until) throw new TimeoutException("선택한 VM 종료 대기 시간이 초과되었습니다.");
             await Task.Delay(1000, Cancellation());
         }
+        if (KindOf(index)=="bluestacks") await Task.Delay(500, Cancellation());
     }
     internal static bool CanFixResolution(int index) => FixesSettings(index);
     internal static bool ResolutionOk(string output) => ResolutionMatches(output);
-    internal static async Task Prepare(int index, bool running, int memoryMb = 0, int cpus = 0)
+    internal static async Task<string> Prepare(int index, bool running, int memoryMb = 0, int cpus = 0)
     {
         if (memoryMb == 0 || cpus == 0)
         {
@@ -63,7 +64,7 @@ internal static partial class OriginalEmulators
             memoryMb = (int)(memory.Gb * 1024); cpus = memory.Cpus;
         }
         ProfileMemory.Value=memoryMb; ProfileCpus.Value=cpus;
-        try { await PrepareVm(index, running); }
+        try { return await PrepareVm(index, running); }
         finally { ProfileMemory.Value=0; ProfileCpus.Value=0; }
     }
     internal static bool MemoryCanChange(int index) => KindOf(index)!="bluestacks" ||
@@ -112,6 +113,7 @@ internal static partial class OriginalEmulators
             if(at<0) throw new InvalidOperationException("블루스택 RAM 설정을 찾지 못했습니다.");
             lines[at]=$"{key}=\"{gb*1024}\"";
             await File.WriteAllLinesAsync(BlueStacksConf,lines);
+            lock(BlueStacksConfLock) BlueStacksConfCache=(DateTime.MinValue,[]);
         }
         else if (KindOf(index)=="mumu")
             RequireMuMuOk(await MuMu(TimeSpan.FromSeconds(30),"setting","-v",local.ToString(),"-k","performance_mode","-val","custom","-k","performance_cpu.custom","-val",cpus.ToString(),"-k","performance_mem.custom","-val",gb.ToString()));

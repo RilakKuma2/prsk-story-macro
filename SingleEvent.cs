@@ -5,7 +5,13 @@ internal static partial class Program
     // A single-event run stops on every interruption, even when automatic recovery is enabled.
     static async Task ReadSingleEvent()
     {
-        await ConnectVm();
+        if (await EnsureRunning())
+        {
+            await ReturnHome();
+            await EnterMainEventStories();
+            await ApplyUnreadFilter();
+            await OpenSelectedCatalogueStory(singleEvent: true);
+        }
         using var first = await CaptureUncoveredEpisodeList();
         Log("1개 이벤스만 · 현재 에피소드 목록의 SKIP/미읽음부터 시작 · 자동 재개 없음");
         await RunWithNewDataRecovery(async () =>

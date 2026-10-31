@@ -9,6 +9,8 @@ internal static partial class Program
     static readonly string Artifacts = Path.Combine(DataRoot, "artifacts");
     static CancellationTokenSource Stop = new();
     static Action<string> LogSink = Console.WriteLine;
+    static Action<string>? NotifySink;
+    static Action<string>? StatusSink;
     static readonly object LogLock = new();
     static string ShotPath => Path.Combine(Artifacts, $"instance-{Selected?.Index ?? 0}-current.png");
     static void Log(string message)
@@ -70,8 +72,8 @@ internal static partial class Program
         var memoryChanged = args[0] != "snap" && await PrepareMemoryForRun();
         await RunWithNewDataRecovery(async () =>
         {
-            if (args[0] == "read-current") { if (memoryChanged) await EnterStoryAfterMemoryChange(); else await ConnectVm(); await ReadStoryQueue(); }
-            else if (args[0] == "filter") { if (memoryChanged) await EnterStoryAfterMemoryChange(); else { await ConnectVm(); await ApplyUnreadFilter(); } }
+            if (args[0] == "read-current") { if (memoryChanged || await EnsureRunning()) await EnterStoryAfterMemoryChange(); await ReadStoryQueue(); }
+            else if (args[0] == "filter") { if (memoryChanged || await EnsureRunning()) await EnterStoryAfterMemoryChange(); else await ApplyUnreadFilter(); }
             else if (args[0] == "story") { await EnsureRunning(); await EnterMainEventStories(); await ApplyUnreadFilter(); }
             else if (args[0] == "home") { await EnsureRunning(); await ReturnHome(); }
             else { await ConnectVm(); await Snapshot(ShotPath); }

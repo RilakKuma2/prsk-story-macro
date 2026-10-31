@@ -36,7 +36,14 @@ internal static partial class Program
         public bool TryBeginUpdate() => deviceGate.Wait(0);
         public void EndUpdate() => deviceGate.Release();
         Task? worker, monitor;
-        public StoryPanel() { LogSink = line => { logs.Enqueue(line); while (logs.Count > 300) logs.TryDequeue(out _); }; }
+        long noticeId;
+        volatile string? noticeMessage;
+        public StoryPanel()
+        {
+            LogSink = line => { logs.Enqueue(line); while (logs.Count > 300) logs.TryDequeue(out _); };
+            NotifySink = message => { noticeMessage = message; Interlocked.Increment(ref noticeId); };
+            StatusSink = status => { if (selection >= 0) states[selection] = status; };
+        }
         static string Resource(string name)
         {
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)!;
@@ -79,7 +86,7 @@ internal static partial class Program
                     state = states.GetValueOrDefault(vm.Index, vm.Running ? "대기" : "꺼짐"), error = errors.GetValueOrDefault(vm.Index),
                     singleEvent = commands.GetValueOrDefault(vm.Index) == "read-one",
                     progress = Progress.GetValueOrDefault(vm.Index), previewError = previewErrors.GetValueOrDefault(vm.Index), frame = CurrentFrames.Read(vm.Index)?.Revision ?? 0
-                }), logs = logs.ToArray()
+                }), logs = logs.ToArray(), notice = noticeMessage == null ? null : new { id = Interlocked.Read(ref noticeId), message = noticeMessage }
             }));
             app.MapGet("/api/frame/{index:int}", IResult (int index) =>
             {
@@ -205,14 +212,14 @@ internal static partial class Program
                     {
                         await RunWithNewDataRecovery(async () =>
                         {
-                            if(memoryChanged) await EnterStoryAfterMemoryChange(virtualOnly:true); else await ConnectVm();
+                            if(memoryChanged || await EnsureRunning()) await EnterStoryAfterMemoryChange(virtualOnly:true);
                             await ReadVirtualQueue();
                         },ReadVirtualQueue,virtualLive:true);
                     }
                     else await RunWithNewDataRecovery(async () =>
                     {
                         if (request.Command == "restart-read") await RestartGameAndRead();
-                        else { if (memoryChanged) await EnterStoryAfterMemoryChange(); else await ConnectVm(); await ReadStoryQueue(); }
+                        else { if (memoryChanged || await EnsureRunning()) await EnterStoryAfterMemoryChange(); await ReadStoryQueue(); }
                     }, ReadStoryQueue);
                 }
                 states[request.Instance] = "완료";
@@ -291,6 +298,6 @@ internal static partial class Program
             try { await Task.WhenAll(new[] { worker, monitor }.OfType<Task>()).WaitAsync(TimeSpan.FromSeconds(6)); } catch { }
             CurrentFrames.Clear();
         }
-        public void Dispose() { closing.Dispose(); LogSink = Console.WriteLine; }
+        public void Dispose() { closing.Dispose(); LogSink = Console.WriteLine; NotifySink = null; StatusSink = null; }
     }
 }

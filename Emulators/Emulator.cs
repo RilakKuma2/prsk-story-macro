@@ -163,9 +163,10 @@ internal static partial class OriginalEmulators
             _=>throw new ArgumentException(instance.ToString())
         };
     }
-    // BlueStacks keeps every instance's settings in one file that a running BlueStacks rewrites, so a wrong VM is
-    // reported instead of being restarted with fixed settings.
-    static bool FixesSettings(int instance)=>KindOf(instance)!="bluestacks";
+    // BlueStacks keeps every instance's settings in one file that a running BlueStacks rewrites, so it can be fixed
+    // automatically whenever no other BlueStacks instance is running.
+    static bool FixesSettings(int instance)=>KindOf(instance)!="bluestacks" ||
+        BlueStacksProcesses().Keys.All(id=>id==BlueStacksInstanceOf(LocalIndex(instance)).Id);
     // MuMu reports its display in portrait (540x960, rotated to landscape); the others report 960x540.
     static bool ResolutionMatches(string wmOutput)=>(wmOutput.Contains("Physical size: 960x540") || wmOutput.Contains("Physical size: 540x960"))
         && wmOutput.Contains("Physical density: 160") && !wmOutput.Contains("Override");
