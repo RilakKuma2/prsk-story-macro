@@ -30,6 +30,9 @@ internal static partial class Program
         volatile bool manualSelection;
         string EmulatorSetting=>Path.Combine(DataRoot,"local","tab.txt");
         volatile bool busy;
+        public bool UpdateBusy => busy;
+        public bool TryBeginUpdate() => deviceGate.Wait(0);
+        public void EndUpdate() => deviceGate.Release();
         Task? worker, monitor;
         public StoryPanel() { LogSink = line => { logs.Enqueue(line); while (logs.Count > 300) logs.TryDequeue(out _); }; }
         static string Resource(string name)

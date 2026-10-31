@@ -9,6 +9,7 @@ let port = 8796
 let panelURL = URL(string: "http://127.0.0.1:\(port)/")!
 let workspace = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/SekaiStorySkip")
 let bundled = Bundle.main.resourceURL!.appendingPathComponent("app")
+let appDisplayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Sekai Story Skip"
 
 // Flow data and templates follow the app; local/ (settings and records) is left alone. Only changed files are
 // replaced, each by an atomic rename, since a run that outlived the last panel may be reading them.
@@ -66,14 +67,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.mainMenu = makeMenu()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 860),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "셐 스토리 스킵"
+        window.title = appDisplayName
         window.minSize = NSSize(width: 420, height: 560)
         window.contentView = webView
         window.center()
         window.setFrameAutosaveName("Panel")
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.loadHTMLString(page("셐 스토리 스킵를 여는 중…"), baseURL: nil)
+        webView.loadHTMLString(page("\(appDisplayName)을 여는 중…"), baseURL: nil)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         if !panelRunning() {
@@ -180,11 +181,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             item.target = target
             return item
         }
-        submenu("셐 스토리 스킵", [
-            item("셐 스토리 스킵에 관하여", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        submenu(appDisplayName, [
+            item("\(appDisplayName)에 관하여", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
             .separator(),
-            item("셐 스토리 스킵 가리기", #selector(NSApplication.hide(_:)), "h"),
-            item("셐 스토리 스킵 종료", #selector(NSApplication.terminate(_:)), "q"),
+            item("\(appDisplayName) 가리기", #selector(NSApplication.hide(_:)), "h"),
+            item("\(appDisplayName) 종료", #selector(NSApplication.terminate(_:)), "q"),
         ])
         // Without an Edit menu, Command-C and Command-V do not reach the page's text fields.
         submenu("편집", [

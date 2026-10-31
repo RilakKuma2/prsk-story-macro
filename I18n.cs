@@ -23,7 +23,7 @@ internal static partial class Program
         language=value;
     }
 
-    static string AppTitle=>T("셐 스토리 스킵","セカイストーリースキップ","Sekai Story Skip");
+    static string AppTitle=>T("셐스토리스킵","セカイストーリースキップ","Sekai Story Skip");
     internal static string PickLanguage(string ko,string ja,string en)=>T(ko,ja,en);
     static string T(string ko,string ja,string en)=>Language switch { "ja"=>ja,"en"=>en,_=>ko };
 

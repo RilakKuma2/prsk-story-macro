@@ -41,6 +41,7 @@ internal static partial class Program
         }, null, -1, false);
         using var view = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = window.BackColor };
         window.Controls.Add(view);
+        AddUpdateMenu(window,panel);
         window.Shown += async (_, _) =>
         {
             try
@@ -75,6 +76,7 @@ internal static partial class Program
                 view.CoreWebView2.Navigate(url);
             }
             catch (Exception ex) { MessageBox.Show(window, ex.Message, "스토리 제어판 시작 실패"); }
+            _ = Task.Run(()=>CheckForUpdate(window,panel));
         };
         window.FormClosing += (_, _) => panel.RequestStop();
         Application.Run(window);

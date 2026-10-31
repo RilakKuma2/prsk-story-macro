@@ -9,9 +9,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>SekaiStorySkip.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>0.0.1</Version>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="ReleasePackage" Value="$(ReleasePackage)" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" Condition="'$(SekaiPlatform)'=='windows'" />
     <EmbeddedResource Include="web\index.html" LogicalName="web.index.html" />
@@ -22,7 +23,7 @@
     <Content Include="tests\fixtures\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(SekaiPlatform)'=='windows'"><Compile Remove="Mac*.cs;Emulators/BlueStacks.cs" /></ItemGroup>
-  <ItemGroup Condition="'$(SekaiPlatform)'!='windows'"><Compile Remove="Gui.cs;Emulators/BlueStacks5.cs;SafetyChecks.cs;RecoveryChecks.cs;CaptureChecks.cs" /><Content Include="mac/ocr.swift" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup Condition="'$(SekaiPlatform)'!='windows'"><Compile Remove="Gui.cs;Updater.cs;Emulators/BlueStacks5.cs;SafetyChecks.cs;RecoveryChecks.cs;CaptureChecks.cs" /><Content Include="mac/ocr.swift" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
   <Target Name="RemoveUnusedWebViewWpf" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup><Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf'" /></ItemGroup>
   </Target>

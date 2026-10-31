@@ -2,7 +2,7 @@
 const LANGS={ko:"한국어",ja:"日本語",en:"English"};
 const DICT={
   "ja": {
-    "셐 스토리 스킵": "セカイストーリースキップ",
+    "셐스토리스킵": "セカイストーリースキップ",
     "전체 이벤스": "全イベントストーリー",
     "전체 버라": "全バーチャルライブ",
     "1개 이벤스만": "このイベントのみ",
@@ -80,7 +80,7 @@ const DICT={
     "보호 재시작": "保護のため再起動"
   },
   "en": {
-    "셐 스토리 스킵": "Sekai Story Skip",
+    "셐스토리스킵": "Sekai Story Skip",
     "전체 이벤스": "All event stories",
     "전체 버라": "All virtual lives",
     "1개 이벤스만": "This event only",
@@ -160,4 +160,4 @@ const DICT={
 };
 let lang='ko';try{lang=localStorage.getItem('lang')||'ko'}catch{}
 function t(key,...args){return (DICT[lang]?.[key]??key).replace(/\{(\d+)\}/g,(_,i)=>args[i]??'{'+i+'}')}
-function translatePage(){document.documentElement.lang=lang;document.title=t('셐 스토리 스킵');const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('script,style')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});for(let node;node=walk.nextNode();){const key=node.nodeValue.trim();if(key)node.nodeValue=node.nodeValue.replace(key,t(key))}for(const el of document.querySelectorAll('[placeholder],[title],[aria-label],[alt]'))for(const attr of ['placeholder','title','aria-label','alt'])if(el.hasAttribute(attr))el.setAttribute(attr,t(el.getAttribute(attr)));window.chrome?.webview?.postMessage('title:'+document.title)}
+function translatePage(){document.documentElement.lang=lang;document.title=t('셐스토리스킵');const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('script,style')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});for(let node;node=walk.nextNode();){const key=node.nodeValue.trim();if(key)node.nodeValue=node.nodeValue.replace(key,t(key))}for(const el of document.querySelectorAll('[placeholder],[title],[aria-label],[alt]'))for(const attr of ['placeholder','title','aria-label','alt'])if(el.hasAttribute(attr))el.setAttribute(attr,t(el.getAttribute(attr)));window.chrome?.webview?.postMessage('title:'+document.title)}
