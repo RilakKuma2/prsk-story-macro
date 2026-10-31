@@ -42,8 +42,12 @@ internal static partial class Program
         }
         var current = CurrentVersion.ToString();
         var newer = new Version(CurrentVersion.Major, CurrentVersion.Minor, CurrentVersion.Build + 1).ToString();
+        var revision = new Version(CurrentVersion.Major, CurrentVersion.Minor, CurrentVersion.Build, Math.Max(CurrentVersion.Revision, 0) + 1).ToString();
         const string dmg = "SekaiStorySkip-mac-arm64.dmg", zip = "SekaiStorySkip-win-x64.zip";
+        assert(Normalize(new Version(0,0,2,1)) > Normalize(new Version(0,0,2)), "four-part versions retain their revision for update comparisons");
+        assert(Normalize(new Version(0,0,2,0)) == Normalize(new Version(0,0,2)), "zero revision remains equivalent to a three-part version");
         assert(Parse(current, [dmg, zip], true).Status == "current", "manual update check reports the current version");
+        assert(Parse(revision, [dmg, zip], true) is {Status:"available",Latest:var latest} && latest == revision, "update checks detect a newer fourth version component");
         assert(Parse(newer, [dmg, zip], true) is { Status: "available", DownloadUrl: { } macUrl } && macUrl.EndsWith(dmg), "Mac update button selects the DMG");
         assert(Parse(newer, [dmg, zip], false) is { Status: "available", DownloadUrl: { } winUrl } && winUrl.EndsWith(zip), "Windows update check selects the ZIP");
         assert(Parse(newer, [zip], true).Status == "unavailable", "missing Mac asset does not offer a Windows download");

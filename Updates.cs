@@ -4,7 +4,9 @@ internal static partial class Program
 {
     const string ReleaseRepo = "RilakKuma2/prsk-story-macro";
     static Version CurrentVersion => Normalize(typeof(Program).Assembly.GetName().Version ?? new Version(0, 0, 0));
-    static Version Normalize(Version version) => new(version.Major, version.Minor, Math.Max(version.Build, 0));
+    static Version Normalize(Version version) => version.Revision > 0
+        ? new(version.Major, version.Minor, Math.Max(version.Build, 0), version.Revision)
+        : new(version.Major, version.Minor, Math.Max(version.Build, 0));
     sealed record UpdateInfo(string Current, string? Latest, string Status, string? DownloadUrl);
 
     static async Task<UpdateInfo> ReadUpdateInfo()

@@ -15,22 +15,20 @@ internal static partial class Program
         assert(EpisodeLockedRows(lockedOnly).Count==1 && FindEpisodeToRead(lockedOnly,true)==null,
             "already-read first episode plus locked second episode has no eligible read target");
 
-        var atTop=false;var rewinds=0;var opened=0;
+        var observations=0;var scrolls=0;
         var resumed=await ScanEpisodePages(() =>
         {
-            if (!atTop) return Task.FromResult(new EpisodePage(false,false,false,false));
-            opened++;
+            observations++;
             return Task.FromResult(new EpisodePage(false,true,true,false));
-        },() => Task.FromResult(false),() => { atTop=true;rewinds++;return Task.CompletedTask; });
-        assert(rewinds==1 && opened==1 && resumed.HasUnread && !resumed.BottomReached,
-            "recovery at an empty lower page rewinds and opens the upper red-only last episode before completing");
-        assert(resumed.TopChecked,"resumed red-only scan records that it checked the top");
+        },() => { scrolls++;return Task.FromResult(false); });
+        assert(observations==1 && scrolls==0 && resumed.HasUnread && !resumed.BottomReached,
+            "the loaded red-only episode opens immediately without scrolling");
 
-        rewinds=0;var observations=0;
+        observations=0;scrolls=0;
         var blocked=await ScanEpisodePages(() => { observations++;return Task.FromResult(new EpisodePage(false,false,false,true)); },
-            () => Task.FromResult(false),() => { rewinds++;return Task.CompletedTask; });
-        assert(rewinds==1 && observations==4 && blocked is {TopChecked:true,BottomReached:true,HasLocked:true},
-            "a locked-only story finishes scanning from the top and can advance without being counted as fully read");
+            () => { scrolls++;return Task.FromResult(false); });
+        assert(observations==2 && scrolls==2 && blocked is {BottomReached:true,HasLocked:true},
+            "a locked-only story advances at the bottom without a second scan or being counted as fully read");
 
         using var catalogue=new Bitmap(Path.Combine(Root,"tests","fixtures","catalogue-after-completion.png"));
         var key=CatalogueSignature(catalogue);
@@ -45,9 +43,9 @@ internal static partial class Program
             "locked events advance only within this scan and are rechecked after a restart");
         try { pass.Confirm(key,resumed);assert(false,"an unread event must not become skippable"); }
         catch (InvalidOperationException) { assert(true,"red-only unread evidence blocks catalogue advancement"); }
-        try { RecordVerifiedStory(progress,new(false,false,true,1));assert(false,"incomplete verification must not mark completion"); }
-        catch (InvalidOperationException) { assert(true,"a lower-page-only scan cannot mark the whole event completed"); }
-        var complete=RecordVerifiedStory(progress,new(false,false,true,4,true,false));
+        try { RecordVerifiedStory(progress,new(false,false,false,1));assert(false,"incomplete verification must not mark completion"); }
+        catch (InvalidOperationException) { assert(true,"an unfinished scan cannot mark the whole event completed"); }
+        var complete=RecordVerifiedStory(progress,new(false,false,true,2));
         assert(complete.Stage=="verified" && complete.Completed.Count==1,"fully verified unlocked stories are recorded as completed");
     }
 }
