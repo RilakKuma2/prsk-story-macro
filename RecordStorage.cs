@@ -63,10 +63,11 @@ internal static partial class Program
             write();
             RecordWarnings.TryRemove(path, out _);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException)
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
         {
+            if (RecordWarnings.Count>=256) RecordWarnings.Clear();
             if (RecordWarnings.TryAdd(path, 0)) Log($"증거 이미지 저장 실패 · 진행은 계속합니다: {Path.GetFileName(path)} · {ex.Message}");
         }
     }
-    static void CopyEvidence(string source, string target) => SaveEvidence(target, () => File.Copy(source, target, true));
+    static void CopyEvidence(string source, string target) => SaveEvidence(target, () => EvidenceArchive.Value.Save(CurrentEvidenceBytes(source),target));
 }

@@ -15,6 +15,7 @@ internal static partial class Program
     sealed record CreateVmRequest(string Emulator, string Name);
     sealed record EmulatorRequest(string Emulator);
     sealed record LanguageRequest(string Language);
+    sealed record GameInstallRequest(int Instance, bool Update = false);
     static bool IsPanelCommand(string command) => command is "read-current" or "restart-read" or "read-one" or "virtual-all";
     sealed partial class StoryPanel : IDisposable
     {
@@ -77,19 +78,13 @@ internal static partial class Program
                     vm.Index, vm.Name, vm.Running, vm.Kind, vm.Label, selected = vm.Index == selection,
                     state = states.GetValueOrDefault(vm.Index, vm.Running ? "대기" : "꺼짐"), error = errors.GetValueOrDefault(vm.Index),
                     singleEvent = commands.GetValueOrDefault(vm.Index) == "read-one",
-                    progress = Progress.GetValueOrDefault(vm.Index), previewError = previewErrors.GetValueOrDefault(vm.Index), frame = File.Exists(FramePath(vm.Index)) ? File.GetLastWriteTimeUtc(FramePath(vm.Index)).Ticks : 0
+                    progress = Progress.GetValueOrDefault(vm.Index), previewError = previewErrors.GetValueOrDefault(vm.Index), frame = CurrentFrames.Read(vm.Index)?.Revision ?? 0
                 }), logs = logs.ToArray()
             }));
-            app.MapGet("/api/frame/{index:int}", async (int index) =>
+            app.MapGet("/api/frame/{index:int}", IResult (int index) =>
             {
-                if (!instances.Any(v => v.Index == index) || !File.Exists(FramePath(index))) return Results.NotFound();
-                try
-                {
-                    using var file = new FileStream(FramePath(index), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                    using var memory = new MemoryStream(); await file.CopyToAsync(memory);
-                    return Results.Bytes(memory.ToArray(), "image/png");
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Results.StatusCode(503); }
+                if (!instances.Any(v => v.Index == index) || CurrentFrames.Read(index) is not { } frame) return Results.NotFound();
+                return Results.Bytes(frame.Png,"image/png");
             });
             app.MapPost("/api/select", (SelectRequest request) =>
             {
@@ -138,6 +133,30 @@ internal static partial class Program
                 return Results.Accepted();
             });
             app.MapPost("/api/stop", () => { RequestStop(); return Results.Ok(); });
+            app.MapPost("/api/install-game", async (GameInstallRequest request) =>
+            {
+                if (!instances.Any(v=>v.Index==request.Instance)) return Results.BadRequest();
+                if (busy || !await deviceGate.WaitAsync(0)) return Results.Conflict();
+                busy=true;selection=request.Instance;
+                emulatorSelection=instances.Single(v=>v.Index==selection).Kind;
+                Stop.Dispose();Stop=new();
+                commands[selection]="install-game";
+                errors.TryRemove(selection,out _);
+                states[selection]=request.Update?"게임 업데이트 중":"게임 설치 중";
+                worker=Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var session=await BeginSession(request.Instance);
+                        await InstallGameOnly(request.Update,Log);
+                        states[request.Instance]=request.Update?"게임 업데이트 완료":"게임 설치 완료";
+                    }
+                    catch (OperationCanceledException) when (Stop.IsCancellationRequested) { states[request.Instance]="중지됨";Log("설치를 중지했습니다."); }
+                    catch (Exception ex) { states[request.Instance]="오류";errors[request.Instance]=ex.Message;LogFailure(ex); }
+                    finally { busy=false;deviceGate.Release(); }
+                });
+                return Results.Accepted();
+            });
             app.MapPost("/api/listen", async (HttpContext context,ListenRequest request) =>
             {
                 if(allowLan || context.Connection.RemoteIpAddress is not { } address || !System.Net.IPAddress.IsLoopback(address)) return Results.StatusCode(403);
@@ -169,7 +188,6 @@ internal static partial class Program
             });
             return app;
         }
-        static string FramePath(int index) => Path.Combine(Artifacts, $"instance-{index}-current.png");
         async Task Execute(StartRequest request)
         {
             try
@@ -212,7 +230,7 @@ internal static partial class Program
             while (!closing.IsCancellationRequested)
             {
                 // Read-only previews have their own explicit VM/serial and never replace the active input target.
-                try { instances = (await ListVms()).ToArray(); }
+                try { instances = (await ListVms()).ToArray();CurrentFrames.Keep(instances.Select(vm=>vm.Index)); }
                 catch (Exception ex) when (!closing.IsCancellationRequested) { Log("인스턴스 조회: " + ex.Message); }
                 if (!busy && await deviceGate.WaitAsync(0))
                 {
@@ -230,9 +248,9 @@ internal static partial class Program
                         if (instances.SingleOrDefault(v => v.Index == selection) is { } vm)
                         {
                             Selected = vm; await RefreshMemoryInfo();
-                            if (vm.Running && File.Exists(FramePath(vm.Index)))
+                            if (vm.Running && CurrentFrames.Read(vm.Index) is { } frame)
                             {
-                                using var stream = new MemoryStream(await File.ReadAllBytesAsync(FramePath(vm.Index)));
+                                using var stream = new MemoryStream(frame.Png);
                                 using var screen = new Bitmap(stream);
                                 await ObserveStoryProgress(screen);
                             }
@@ -249,19 +267,15 @@ internal static partial class Program
                     try
                     {
                         var bytes = await OriginalEmulators.Preview(vm.Index);
+                        closing.Token.ThrowIfCancellationRequested();
                         if (bytes.Length < 8 || bytes[0] != 137 || bytes[1] != 80) throw new InvalidDataException("캡처 응답이 PNG가 아닙니다.");
-                        if(busy && vm.Index==selection)
+                        if(busy && vm.Index==selection && WorkflowActive)
                         {
-                            if(WorkflowActive)
-                            {
-                                using var stream=new MemoryStream(bytes);using var screen=new Bitmap(stream);
-                                if(ProtectedScreenReason(screen) is { } reason){PreserveProtectionFrame(bytes,vm.Index,reason);Interlocked.CompareExchange(ref PendingProtectionReason,reason,null);}
-                            }
+                            using var stream=new MemoryStream(bytes);using var screen=new Bitmap(stream);
+                            if(ProtectedScreenReason(screen) is { } reason){PreserveProtectionFrame(bytes,vm.Index,reason);Interlocked.CompareExchange(ref PendingProtectionReason,reason,null);}
                             continue;
                         }
-                        var path = FramePath(vm.Index);
-                        await File.WriteAllBytesAsync(path + ".preview", bytes, closing.Token);
-                        File.Move(path + ".preview", path, true);
+                        CurrentFrames.Publish(vm.Index,bytes);
                         previewErrors.TryRemove(vm.Index, out _);
                     }
                     catch (Exception ex) when (!closing.IsCancellationRequested) { previewErrors[vm.Index] = ex.Message; }
@@ -275,6 +289,7 @@ internal static partial class Program
             closing.Cancel(); RequestStop();
             await CloseListen();
             try { await Task.WhenAll(new[] { worker, monitor }.OfType<Task>()).WaitAsync(TimeSpan.FromSeconds(6)); } catch { }
+            CurrentFrames.Clear();
         }
         public void Dispose() { closing.Dispose(); LogSink = Console.WriteLine; }
     }

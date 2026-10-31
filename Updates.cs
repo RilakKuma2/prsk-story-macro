@@ -7,7 +7,7 @@ internal static partial class Program
     static Version Normalize(Version version) => version.Revision > 0
         ? new(version.Major, version.Minor, Math.Max(version.Build, 0), version.Revision)
         : new(version.Major, version.Minor, Math.Max(version.Build, 0));
-    sealed record UpdateInfo(string Current, string? Latest, string Status, string? DownloadUrl);
+    sealed record UpdateInfo(string Current, string? Latest, string Status, string? DownloadUrl, string Notes = "");
 
     static async Task<UpdateInfo> ReadUpdateInfo()
     {
@@ -33,6 +33,7 @@ internal static partial class Program
         if (url == null) return new(CurrentVersion.ToString(), latest.ToString(), "unavailable", null);
         if (!url.StartsWith($"https://github.com/{ReleaseRepo}/releases/download/", StringComparison.Ordinal))
             throw new InvalidDataException("Unexpected release download URL.");
-        return new(CurrentVersion.ToString(), latest.ToString(), "available", url);
+        var notes=ChangesFromReleaseNotes(release.TryGetProperty("body",out var body)?body.GetString():null);
+        return new(CurrentVersion.ToString(), latest.ToString(), "available", url, notes);
     }
 }

@@ -7,8 +7,8 @@ internal static partial class Program
     {
         if(DateTime.UtcNow-lastProtectionEvidence<TimeSpan.FromSeconds(5))return;
         lastProtectionEvidence=DateTime.UtcNow;
-        var path=Path.Combine(Artifacts,"protection",$"instance-{instance}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
-        SaveEvidence(path,()=>File.WriteAllBytes(path,bytes));
+        var path=Path.Combine(Artifacts,"protection",$"instance-{instance}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.webp");
+        SaveEvidenceImage(bytes,path);
         Log(reason+" · 감지 당시 캡처: "+Path.GetFileName(path));
     }
     static void CheckPendingProtection()

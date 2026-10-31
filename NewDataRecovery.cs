@@ -66,16 +66,12 @@ internal static partial class Program
         Matches(screen, new("new-data-message", "new-data-message.png", 0, 0, 384, 234, 188, 38)) &&
         Matches(screen, new("new-data-ok", "new-data-ok.png", 0, 0, 467, 308, 27, 21));
 
-    static void PreserveNewDataNotice(Bitmap screen)
+    static void PreserveNewDataNotice(byte[] bytes)
     {
         var folder = Path.Combine(Artifacts, "new-data");
         var name = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff") + $"-instance-{Selected!.Index}";
-        var imagePath = Path.Combine(folder, name + ".png");
-#if WINDOWS
-        SaveEvidence(imagePath, () => screen.Save(imagePath, System.Drawing.Imaging.ImageFormat.Png));
-#else
-        SaveEvidence(imagePath, () => screen.Save(imagePath, ImageFormat.Png));
-#endif
+        var imagePath = Path.Combine(folder, name + ".webp");
+        SaveEvidenceImage(bytes,imagePath);
         var recordPath = Path.Combine(folder, name + ".json");
         SaveEvidence(recordPath, () => File.WriteAllText(recordPath, JsonSerializer.Serialize(new
         {
@@ -95,7 +91,8 @@ internal static partial class Program
             await RunRecoveryAttempts(work, async interruption =>
             {
                 try { await SetReaderLease(false); } catch { }
-                if (File.Exists(ShotPath)) CopyEvidence(ShotPath, Path.Combine(Artifacts, $"instance-{Selected!.Index}-before-recovery.png"));
+                if (CurrentFrames.Read(Selected!.Index) is { } frame)
+                    SaveEvidenceImage(frame.Png, Path.Combine(Artifacts, $"instance-{Selected.Index}-before-recovery.webp"));
             }, async interruption =>
             {
                 safetyResume=interruption.Cause==RecoveryCause.AccountSafety;

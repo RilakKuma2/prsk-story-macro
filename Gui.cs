@@ -48,11 +48,12 @@ internal static partial class Program
             {
                 var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Root, "local", "webview2"));
                 await view.EnsureCoreWebView2Async(environment);
+                GameDownloadWindow=key=>OpenGameDownload(window,environment,key);
                 view.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 view.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 void OpenDownload(string target)
                 {
-                    if (IsEmulatorDownload(target)) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
+                    if (IsEmulatorDownload(target) || IsGameDownloadSite(target)) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
                 }
                 view.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; OpenDownload(e.Uri); };
                 view.CoreWebView2.NavigationStarting += (_, e) =>
@@ -69,8 +70,9 @@ internal static partial class Program
                     {
                         try
                         {
-                            using var output = File.Create(Path.Combine(Artifacts, "gui-preview.png"));
+                            using var output = new MemoryStream();
                             await view.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, output);
+                            SaveEvidenceImage(output.ToArray(),Path.Combine(Artifacts,"gui-preview.webp"));
                         }
                         catch (Exception ex) { Log("GUI 미리보기 저장: " + ex.Message); }
                     }
@@ -80,7 +82,7 @@ internal static partial class Program
             catch (Exception ex) { MessageBox.Show(window, ex.Message, "스토리 제어판 시작 실패"); }
             _ = Task.Run(()=>CheckForUpdate(window,panel));
         };
-        window.FormClosing += (_, _) => panel.RequestStop();
+        window.FormClosing += (_, _) => { panel.RequestStop();DownloadWindow?.Close(); };
         Application.Run(window);
         registered.Unregister(null);
         panel.Shutdown().GetAwaiter().GetResult();

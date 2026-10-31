@@ -135,6 +135,7 @@ internal static partial class Program
         }
         else
         {
+            if (Selected != null && args.Length >= 3 && args[0] == "-s" && args[1] == Serial && AuthorizedInstallCommand != null && string.Join('\0',args) == AuthorizedInstallCommand) { AuthorizedInstallCommand = null; return; }
             if (Selected != null && args.Length >= 3 && args[0] == "-s" && args[1] == Serial && AuthorizedAuxiliary != null && string.Join('\0', args) == AuthorizedAuxiliary) { AuthorizedAuxiliary = null; return; }
             if (Selected != null && args.SequenceEqual(new[] { "connect", Serial })) return;
             if (Selected != null && args.Length >= 4 && args[0] == "-s" && args[1] == Serial)
@@ -182,7 +183,7 @@ internal static partial class Program
             }
         }
     }
-    static async Task<byte[]> RunBytes(string file, string[] args, bool manager = false, CancellationToken? cancellation = null)
+    static async Task<byte[]> RunBytes(string file, string[] args, bool manager = false, CancellationToken? cancellation = null, TimeSpan? timeout = null)
     {
         var token = cancellation ?? Stop.Token;
         token.ThrowIfCancellationRequested();
@@ -196,9 +197,9 @@ internal static partial class Program
                 await OriginalEmulators.Connect(Selected!.Index);
             }, token);
         }
-        return await RunBytesOnce(file, args, manager, token);
+        return await RunBytesOnce(file, args, manager, token, timeout);
     }
-    static async Task<byte[]> RunBytesOnce(string file, string[] args, bool manager, CancellationToken token)
+    static async Task<byte[]> RunBytesOnce(string file, string[] args, bool manager, CancellationToken token, TimeSpan? timeout = null)
     {
         token.ThrowIfCancellationRequested();
         using var process = new Process { StartInfo = new(file) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true } };
@@ -210,7 +211,7 @@ internal static partial class Program
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         // Only the dead-man-lease-controlled reader may stay connected beyond a normal command timeout.
         var reader = Selected != null && args.SequenceEqual(new[] { "-s", Serial, "shell", "sh " + ReaderRemote("taps.sh") });
-        deadline.CancelAfter(reader ? TimeSpan.FromHours(12) : TimeSpan.FromSeconds(45));
+        deadline.CancelAfter(timeout ?? (reader ? TimeSpan.FromHours(12) : TimeSpan.FromSeconds(45)));
         try { await process.WaitForExitAsync(deadline.Token); }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {

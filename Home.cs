@@ -79,12 +79,11 @@ internal static partial class Program
         return true;
     }
 
-    // Same binary ADB screenshot path and 960x540 validation as the original Snapshot implementation.
+    // Live captures stay in memory. Only an explicit CLI snapshot supplies an export path.
     static DateTimeOffset LastCaptureCompletedAt;
-    static async Task<byte[]> Snapshot(string path, Func<Task<byte[]>>? capture = null)
+    static async Task<byte[]> Snapshot(string? path = null, Func<Task<byte[]>>? capture = null)
     {
-        // Original Snapshot behavior: a transient capture/file lock is retried with a
-        // fresh ADB frame, at most three times and 700 ms apart. Never reuse a stale frame.
+        // Retry a failed capture (or explicit export) using a fresh frame, at most three times.
         for (var attempt = 0; ; attempt++)
         {
             Stop.Token.ThrowIfCancellationRequested();
@@ -96,8 +95,12 @@ internal static partial class Program
                 using var decoded = new Bitmap(stream);
                 if (decoded.Width != 960 || decoded.Height != 540) throw new InvalidOperationException($"화면이 {decoded.Width}x{decoded.Height}입니다. 960x540이 아니므로 입력하지 않습니다.");
                 _ = decoded.GetPixel(959, 539);
-                await File.WriteAllBytesAsync(path + ".pending", bytes, Stop.Token);
-                File.Move(path + ".pending", path, true);
+                if (path != null)
+                {
+                    await File.WriteAllBytesAsync(path + ".pending", bytes, Stop.Token);
+                    File.Move(path + ".pending", path, true);
+                }
+                if (Selected is { } vm) CurrentFrames.Publish(vm.Index,bytes);
                 return bytes;
             }
             catch (Exception ex) when (ex is not OperationCanceledException && !Stop.IsCancellationRequested)
@@ -112,7 +115,7 @@ internal static partial class Program
     {
         CheckPendingProtection();
         if (detectNewData && WorkflowActive) await CheckGameLiveness();
-        var bytes = await Snapshot(ShotPath);
+        var bytes = await Snapshot();
         using var stream = new MemoryStream(bytes);
         using var bitmap = new Bitmap(stream);
         if(WorkflowActive && ProtectedScreenReason(bitmap) is { } protectedReason)
@@ -122,7 +125,7 @@ internal static partial class Program
         }
         if (detectNewData && WorkflowActive && IsNewDataNotice(bitmap))
         {
-            PreserveNewDataNotice(bitmap);
+            PreserveNewDataNotice(bytes);
             throw new NewDataDetected();
         }
         await ObserveStoryProgress(bitmap);

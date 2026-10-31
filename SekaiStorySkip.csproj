@@ -9,21 +9,23 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>SekaiStorySkip.ico</ApplicationIcon>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ReleasePackage" Value="$(ReleasePackage)" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" Condition="'$(SekaiPlatform)'=='windows'" />
+    <PackageReference Include="SkiaSharp" Version="4.154.0" />
     <EmbeddedResource Include="web\index.html" LogicalName="web.index.html" />
     <EmbeddedResource Include="web\base.css" LogicalName="web.base.css" />
     <EmbeddedResource Include="web\i18n.js" LogicalName="web.i18n.js" />
     <EmbeddedResource Include="assets\app-icon.png" LogicalName="web.app-icon.png" />
+    <Content Include="third-party\SkiaSharp\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="templates\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="tests\fixtures\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(SekaiPlatform)'=='windows'"><Compile Remove="Mac*.cs;Emulators/BlueStacks.cs" /></ItemGroup>
-  <ItemGroup Condition="'$(SekaiPlatform)'!='windows'"><Compile Remove="Gui.cs;Updater.cs;Emulators/BlueStacks5.cs;SafetyChecks.cs;RecoveryChecks.cs;CaptureChecks.cs" /><Content Include="mac/ocr.swift" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup Condition="'$(SekaiPlatform)'!='windows'"><Compile Remove="Gui.cs;GuiGameDownload.cs;Updater.cs;Emulators/BlueStacks5.cs;SafetyChecks.cs;RecoveryChecks.cs;CaptureChecks.cs" /><Content Include="mac/ocr.swift" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
   <Target Name="RemoveUnusedWebViewWpf" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup><Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf'" /></ItemGroup>
   </Target>

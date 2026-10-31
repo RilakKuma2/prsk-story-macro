@@ -33,6 +33,7 @@ internal static partial class Program
     static int Main(string[] args)
     {
         Directory.CreateDirectory(Artifacts);
+        _ = Task.Run(()=>EvidenceArchive.Value.Migrate());
         LoadUserSettings();
         OriginalEmulators.Cancellation = () => Stop.Token;
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; Stop.Cancel(); };

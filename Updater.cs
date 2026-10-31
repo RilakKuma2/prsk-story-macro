@@ -66,8 +66,7 @@ internal static partial class Program
                 if(manual) Notice(T("새 버전의 Windows 설치 파일이 아직 없습니다.","新バージョンのWindows用ファイルがまだありません。","The Windows package is not available yet."));
                 return;
             }
-            var notes=root.TryGetProperty("body",out var body)?body.GetString()?.Trim():null;
-            if(notes is { Length: >600 }) notes=notes[..600]+"…";
+            var notes=ChangesFromReleaseNotes(root.TryGetProperty("body",out var body)?body.GetString():null);
 
             if(panel.UpdateBusy || OtherMacroProcesses())
             {
