@@ -1,0 +1,56 @@
+# Build output and packages
+bin/
+obj/
+dist/
+publish/
+TestResults/
+*.exe
+*.dll
+*.pdb
+*.nupkg
+*.snupkg
+
+# Runtime settings, tokens, progress, screenshots and diagnostic logs
+local/
+artifacts/
+sekai-statics/
+*.log
+*.pid
+*.dmp
+*.tmp
+*.temp
+*.bak
+
+# Downloaded game packages and VM disks
+*.apk
+*.apks
+*.xapk
+*.aab
+*.vdi
+*.vhd
+*.vhdx
+*.qcow2
+
+# Local credentials and signing keys
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+
+# Editor and operating system files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Unused icons copied from the original project
+/SekaiMacro.ico
+/icon.png

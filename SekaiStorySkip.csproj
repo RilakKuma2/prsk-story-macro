@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <SekaiPlatform Condition="'$(SekaiPlatform)'=='' And '$(OS)'=='Windows_NT'">windows</SekaiPlatform>
+    <TargetFramework Condition="'$(SekaiPlatform)'=='windows'">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="'$(SekaiPlatform)'!='windows'">net10.0</TargetFramework>
+    <OutputType Condition="'$(SekaiPlatform)'=='windows'">WinExe</OutputType>
+    <OutputType Condition="'$(SekaiPlatform)'!='windows'">Exe</OutputType>
+    <UseWindowsForms Condition="'$(SekaiPlatform)'=='windows'">true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationIcon>SekaiStorySkip.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" Condition="'$(SekaiPlatform)'=='windows'" />
+    <EmbeddedResource Include="web\index.html" LogicalName="web.index.html" />
+    <EmbeddedResource Include="web\base.css" LogicalName="web.base.css" />
+    <EmbeddedResource Include="web\i18n.js" LogicalName="web.i18n.js" />
+    <EmbeddedResource Include="assets\app-icon.png" LogicalName="web.app-icon.png" />
+    <Content Include="templates\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="tests\fixtures\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(SekaiPlatform)'=='windows'"><Compile Remove="Mac*.cs;Emulators/BlueStacks.cs" /></ItemGroup>
+  <ItemGroup Condition="'$(SekaiPlatform)'!='windows'"><Compile Remove="Gui.cs;Emulators/BlueStacks5.cs;SafetyChecks.cs;RecoveryChecks.cs;CaptureChecks.cs" /><Content Include="mac/ocr.swift" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <Target Name="RemoveUnusedWebViewWpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup><Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf'" /></ItemGroup>
+  </Target>
+</Project>

@@ -1,0 +1,270 @@
+using System.Collections.Concurrent;
+using System.Drawing;
+using System.Reflection;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
+
+internal static partial class Program
+{
+    sealed record StartRequest(int Instance, string Command);
+    sealed record SelectRequest(int Instance);
+    sealed record SettingsRequest(bool AutoResume);
+    sealed record MemoryRequest(int Gigabytes);
+    sealed record CreateVmRequest(string Emulator, string Name);
+    sealed record EmulatorRequest(string Emulator);
+    sealed record LanguageRequest(string Language);
+    static bool IsPanelCommand(string command) => command is "read-current" or "restart-read" or "read-one" or "virtual-all";
+    sealed partial class StoryPanel : IDisposable
+    {
+        public string Token { get; } = Guid.NewGuid().ToString("N");
+        readonly SemaphoreSlim deviceGate = new(1, 1);
+        readonly CancellationTokenSource closing = new();
+        readonly ConcurrentQueue<string> logs = new();
+        readonly ConcurrentDictionary<int, string> states = new(), errors = new();
+        readonly ConcurrentDictionary<int, string> previewErrors = new();
+        volatile Vm[] instances = [];
+        volatile int selection = -1;
+        volatile string emulatorSelection="";
+        volatile bool manualSelection;
+        string EmulatorSetting=>Path.Combine(DataRoot,"local","tab.txt");
+        volatile bool busy;
+        Task? worker, monitor;
+        public StoryPanel() { LogSink = line => { logs.Enqueue(line); while (logs.Count > 300) logs.TryDequeue(out _); }; }
+        static string Resource(string name)
+        {
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)!;
+            using var reader = new StreamReader(stream); return reader.ReadToEnd();
+        }
+        public WebApplication BuildServer(string listen="127.0.0.1",int port=0)
+        {
+            var allowLan=listen=="0.0.0.0";
+            var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ContentRootPath = Root });
+            builder.Logging.ClearProviders();
+            builder.WebHost.UseUrls($"http://{listen}:{port}");
+            var app = builder.Build();
+            app.Use(async (context, next) =>
+            {
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                context.Response.Headers["X-Frame-Options"] = "DENY";
+                if ((!allowLan && context.Request.Host.Host != "127.0.0.1") || (context.Request.Method != "GET" && context.Request.Headers["X-Story-Token"] != Token))
+                { context.Response.StatusCode = 403; return; }
+                await next(context);
+            });
+            app.MapGet("/", () => Results.Content(Resource("web.index.html").Replace("__PANEL_TOKEN__", Token), "text/html; charset=utf-8"));
+            app.MapGet("/base.css", () => Results.Content(Resource("web.base.css"), "text/css; charset=utf-8"));
+            app.MapGet("/i18n.js",()=>Results.Content(Resource("web.i18n.js"),"application/javascript; charset=utf-8"));
+            app.MapGet("/app-icon.png",()=>Results.Stream(Assembly.GetExecutingAssembly().GetManifestResourceStream("web.app-icon.png")!,"image/png"));
+            app.MapGet("/example/{kind}", (string kind) => kind is "all" or "one" ? Results.File(Path.Combine(Root,"tests","fixtures",kind=="all"?"catalogue-after-completion.png":"top-story-episodes.png"),"image/png") : Results.NotFound());
+            app.MapGet("/api/state", (HttpContext context) => Results.Json(new
+            {
+                listen=ListenState(),listenLocal=!allowLan && context.Connection.RemoteIpAddress is { } address && System.Net.IPAddress.IsLoopback(address),
+                language=Language,emulator=emulatorSelection,appPlayers=OriginalEmulators.Kinds(),
+                busy, selected = selection, autoResume = AutoResumeEnabled, platform = OperatingSystem.IsMacOS() ? "mac" : "windows", emulators = OriginalEmulators.Installed(), memory = MemoryForUi(selection, instances.Any(vm => vm.Index == selection && vm.Running)),
+                instances = instances.Where(vm=>vm.Kind==emulatorSelection).Select(vm => new
+                {
+                    vm.Index, vm.Name, vm.Running, vm.Kind, vm.Label, selected = vm.Index == selection,
+                    state = states.GetValueOrDefault(vm.Index, vm.Running ? "대기" : "꺼짐"), error = errors.GetValueOrDefault(vm.Index),
+                    progress = Progress.GetValueOrDefault(vm.Index), previewError = previewErrors.GetValueOrDefault(vm.Index), frame = File.Exists(FramePath(vm.Index)) ? File.GetLastWriteTimeUtc(FramePath(vm.Index)).Ticks : 0
+                }), logs = logs.ToArray()
+            }));
+            app.MapGet("/api/frame/{index:int}", async (int index) =>
+            {
+                if (!instances.Any(v => v.Index == index) || !File.Exists(FramePath(index))) return Results.NotFound();
+                try
+                {
+                    using var file = new FileStream(FramePath(index), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var memory = new MemoryStream(); await file.CopyToAsync(memory);
+                    return Results.Bytes(memory.ToArray(), "image/png");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Results.StatusCode(503); }
+            });
+            app.MapPost("/api/select", (SelectRequest request) =>
+            {
+                if (busy) return Results.Conflict();
+                if (!instances.Any(v => v.Index == request.Instance)) return Results.BadRequest();
+                emulatorSelection=instances.Single(v=>v.Index==request.Instance).Kind;
+                manualSelection=true;
+                selection = request.Instance; return Results.Ok();
+            });
+            app.MapPost("/api/emulator",async(EmulatorRequest request)=>
+            {
+                if(busy)return Results.Conflict();
+                if(!OriginalEmulators.Kinds().Any(e=>e.Key==request.Emulator))return Results.BadRequest();
+                emulatorSelection=request.Emulator;
+                manualSelection=false;
+                selection=ChooseInstance(instances.Where(vm=>vm.Kind==emulatorSelection).ToArray(),-1);
+                Directory.CreateDirectory(Path.GetDirectoryName(EmulatorSetting)!);
+                await File.WriteAllTextAsync(EmulatorSetting,emulatorSelection);
+                return Results.Ok();
+            });
+            app.MapPost("/api/language",(LanguageRequest request)=>{try{SetLanguage(request.Language);return Results.Ok();}catch(ArgumentException){return Results.BadRequest();}});
+            app.MapPost("/api/settings", async (SettingsRequest request) =>
+            {
+                await SaveAutoResume(request.AutoResume);
+                Log(request.AutoResume ? "자동 재개 켜짐 · 종료/새 데이터는 반복 복구, 상태 인식 실패 2회만 중지 · 스토리 재진입 시 초기화" : "자동 재개 꺼짐");
+                return Results.Ok();
+            });
+            app.MapPost("/api/memory", async (MemoryRequest request) =>
+            {
+                var memory = MemoryForUi(selection, instances.Any(vm => vm.Index == selection && vm.Running));
+                if (memory == null || request.Gigabytes < 3 || request.Gigabytes > memory.MaxGb) return Results.BadRequest();
+                await SaveMemoryChoice(request.Gigabytes);
+                Log($"RAM {request.Gigabytes}GB 선택 · 다음 실행에 적용");
+                return Results.Ok();
+            });
+            app.MapPost("/api/start", async (StartRequest request) =>
+            {
+                if (!IsPanelCommand(request.Command) || !instances.Any(v => v.Index == request.Instance)) return Results.BadRequest();
+                if (busy || !await deviceGate.WaitAsync(2000)) return Results.Conflict();
+                busy = true; selection = request.Instance;
+                emulatorSelection=instances.Single(v=>v.Index==selection).Kind;
+                Stop.Dispose(); Stop = new();
+                states[selection] = "실행 중"; errors.TryRemove(selection, out _);
+                worker = Task.Run(() => Execute(request));
+                return Results.Accepted();
+            });
+            app.MapPost("/api/stop", () => { RequestStop(); return Results.Ok(); });
+            app.MapPost("/api/listen", async (HttpContext context,ListenRequest request) =>
+            {
+                if(allowLan || context.Connection.RemoteIpAddress is not { } address || !System.Net.IPAddress.IsLoopback(address)) return Results.StatusCode(403);
+                try { await SetListen(request.Enabled,request.Port);return Results.Json(ListenState()); }
+                catch(Exception ex){return Results.BadRequest(new {error=ex.Message});}
+            });
+            app.MapGet("/api/create-info/{key}", async (string key) =>
+            {
+                try { return Results.Json(new { disk=await OriginalEmulators.DiskForCreation(key), memoryGb=NewVmMemoryGb(ReadHostMemory()) }); }
+                catch (Exception ex) { return Results.BadRequest(new { error=ex.Message }); }
+            });
+            app.MapPost("/api/create-vm", async (CreateVmRequest request) =>
+            {
+                if (busy || !await deviceGate.WaitAsync(0)) return Results.Conflict();
+                busy = true; Stop.Dispose(); Stop = new();
+                try
+                {
+                    var memoryGb=NewVmMemoryGb(ReadHostMemory());
+                    Log($"새 VM 생성 · 디스크 필요량 14GB, RAM {memoryGb}GB 자동 선택");
+                    selection = await OriginalEmulators.Create(request.Emulator, request.Name, memoryGb);
+                    emulatorSelection=request.Emulator;
+                    manualSelection=true;
+                    instances = (await ListVms()).ToArray();
+                    Log("VM 생성 완료 · 게임 설치와 로그인 후 시작하세요.");
+                    return Results.Ok();
+                }
+                catch (Exception ex) { LogFailure(ex); return Results.BadRequest(new { error = ex.Message }); }
+                finally { busy = false; deviceGate.Release(); }
+            });
+            return app;
+        }
+        static string FramePath(int index) => Path.Combine(Artifacts, $"instance-{index}-current.png");
+        async Task Execute(StartRequest request)
+        {
+            try
+            {
+                using var session = await BeginSession(request.Instance);
+                if (request.Command == "read-one")
+                {
+                    // Keep the selected event open; apply RAM changes on the next full/reboot start.
+                    await ReadSingleEvent();
+                }
+                else
+                {
+                    var memoryChanged = await PrepareMemoryForRun();
+                    if(request.Command=="virtual-all")
+                    {
+                        await RunWithNewDataRecovery(async () =>
+                        {
+                            if(memoryChanged) await EnterStoryAfterMemoryChange(virtualOnly:true); else await ConnectVm();
+                            await ReadVirtualQueue();
+                        },ReadVirtualQueue,virtualLive:true);
+                    }
+                    else await RunWithNewDataRecovery(async () =>
+                    {
+                        if (request.Command == "restart-read") await RestartGameAndRead();
+                        else { if (memoryChanged) await EnterStoryAfterMemoryChange(); else await ConnectVm(); await ReadStoryQueue(); }
+                    }, ReadStoryQueue);
+                }
+                states[request.Instance] = "완료";
+            }
+            catch (OperationCanceledException) when (Stop.IsCancellationRequested) { states[request.Instance] = "중지됨"; Log("중지됨 · 게임 상태 유지"); }
+            catch (Exception ex) { states[request.Instance] = "오류"; errors[request.Instance] = ex.Message; LogFailure(ex); }
+            finally
+            {
+                try { if (Selected != null && ReaderTouch != null) await SetReaderLease(false); } catch { }
+                busy = false; deviceGate.Release();
+            }
+        }
+        public void StartMonitor() => monitor = Task.Run(async () =>
+        {
+            while (!closing.IsCancellationRequested)
+            {
+                // Read-only previews have their own explicit VM/serial and never replace the active input target.
+                try { instances = (await ListVms()).ToArray(); }
+                catch (Exception ex) when (!closing.IsCancellationRequested) { Log("인스턴스 조회: " + ex.Message); }
+                if (!busy && await deviceGate.WaitAsync(0))
+                {
+                    try
+                    {
+                        if (Stop.IsCancellationRequested) { Stop.Dispose(); Stop = new(); }
+                        if(emulatorSelection=="")
+                        {
+                            string? saved=null;try{if(File.Exists(EmulatorSetting))saved=await File.ReadAllTextAsync(EmulatorSetting);}catch{ }
+                            var running=instances.Where(vm=>vm.Running).ToList();
+                            emulatorSelection=running.Count==1?running[0].Kind:OriginalEmulators.Kinds().Any(e=>e.Key==saved)?saved!:OperatingSystem.IsMacOS()?"bluestacks":"mumu";
+                        }
+                        var visible=instances.Where(vm=>vm.Kind==emulatorSelection).ToArray();
+                        if(!manualSelection || !visible.Any(vm=>vm.Index==selection)) selection=ChooseInstance(visible,selection);
+                        if (instances.SingleOrDefault(v => v.Index == selection) is { } vm)
+                        {
+                            Selected = vm; await RefreshMemoryInfo();
+                            if (vm.Running && File.Exists(FramePath(vm.Index)))
+                            {
+                                using var stream = new MemoryStream(await File.ReadAllBytesAsync(FramePath(vm.Index)));
+                                using var screen = new Bitmap(stream);
+                                await ObserveStoryProgress(screen);
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (!closing.IsCancellationRequested)
+                    { if (!states.ContainsKey(selection)) states[selection] = "연결 대기: " + ex.Message; }
+                    finally { deviceGate.Release(); }
+                }
+                foreach (var vm in instances.Where(vm => vm.Running && vm.Kind==emulatorSelection))
+                {
+                    if (closing.IsCancellationRequested) break;
+
+                    try
+                    {
+                        var bytes = await OriginalEmulators.Preview(vm.Index);
+                        if (bytes.Length < 8 || bytes[0] != 137 || bytes[1] != 80) throw new InvalidDataException("캡처 응답이 PNG가 아닙니다.");
+                        if(busy && vm.Index==selection)
+                        {
+                            if(WorkflowActive)
+                            {
+                                using var stream=new MemoryStream(bytes);using var screen=new Bitmap(stream);
+                                if(ProtectedScreenReason(screen) is { } reason){PreserveProtectionFrame(bytes,vm.Index,reason);Interlocked.CompareExchange(ref PendingProtectionReason,reason,null);}
+                            }
+                            continue;
+                        }
+                        var path = FramePath(vm.Index);
+                        await File.WriteAllBytesAsync(path + ".preview", bytes, closing.Token);
+                        File.Move(path + ".preview", path, true);
+                        previewErrors.TryRemove(vm.Index, out _);
+                    }
+                    catch (Exception ex) when (!closing.IsCancellationRequested) { previewErrors[vm.Index] = ex.Message; }
+                }
+                try { await Task.Delay(3000, closing.Token); } catch (OperationCanceledException) { break; }
+            }
+        });
+        public void RequestStop() { if (busy) { states[selection] = "중지 중"; Stop.Cancel(); } }
+        public async Task Shutdown()
+        {
+            closing.Cancel(); RequestStop();
+            await CloseListen();
+            try { await Task.WhenAll(new[] { worker, monitor }.OfType<Task>()).WaitAsync(TimeSpan.FromSeconds(6)); } catch { }
+        }
+        public void Dispose() { closing.Dispose(); LogSink = Console.WriteLine; }
+    }
+}
