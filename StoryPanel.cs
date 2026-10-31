@@ -72,7 +72,7 @@ internal static partial class Program
             {
                 listen=ListenState(),listenLocal=!allowLan && context.Connection.RemoteIpAddress is { } address && System.Net.IPAddress.IsLoopback(address),
                 language=Language,emulator=emulatorSelection,appPlayers=OriginalEmulators.Kinds(),
-                busy, selected = selection, autoResume = AutoResumeEnabled, platform = OperatingSystem.IsMacOS() ? "mac" : "windows", emulators = OriginalEmulators.Installed(), memory = MemoryForUi(selection, instances.Any(vm => vm.Index == selection && vm.Running)),
+                busy, version = CurrentVersion.ToString(), selected = selection, autoResume = AutoResumeEnabled, platform = OperatingSystem.IsMacOS() ? "mac" : "windows", emulators = OriginalEmulators.Installed(), memory = MemoryForUi(selection, instances.Any(vm => vm.Index == selection && vm.Running)),
                 instances = instances.Where(vm=>vm.Kind==emulatorSelection).Select(vm => new
                 {
                     vm.Index, vm.Name, vm.Running, vm.Kind, vm.Label, selected = vm.Index == selection,

@@ -41,6 +41,13 @@ internal static partial class Program
         pass.Confirm(key,blocked);
         assert(pass.AlreadyChecked(key) && !new CatalogueReadPass().AlreadyChecked(key),
             "locked events advance only within this scan and are rechecked after a restart");
+        LockedStoriesInRun.Confirm(key,blocked);
+        assert(LockedStoriesInRun.AlreadyChecked(key) && !new CatalogueReadPass().AlreadyChecked(key),
+            "a known locked-only event stays skippable when recovery creates a new catalogue pass");
+        LockedStoriesInRun.Clear();
+        assert(!LockedStoriesInRun.AlreadyChecked(key),"a fresh manual run clears lock state so newly unlocked stories can be read");
+        using (var filtered=new Bitmap(Path.Combine(Root,"tests","fixtures","catalogue-top-filtered.png")))
+            assert(!NeedsStoryFilterAtStart(filtered),"an already-filtered catalogue retains the user's currently selected event");
         try { pass.Confirm(key,resumed);assert(false,"an unread event must not become skippable"); }
         catch (InvalidOperationException) { assert(true,"red-only unread evidence blocks catalogue advancement"); }
         try { RecordVerifiedStory(progress,new(false,false,false,1));assert(false,"incomplete verification must not mark completion"); }

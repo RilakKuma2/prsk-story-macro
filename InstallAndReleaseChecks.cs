@@ -8,6 +8,26 @@ internal static partial class Program
         assert(ChangesFromReleaseNotes(notes)=="• 미읽음 처리\n• X 닫기","update notes contain only the changes section, without download instructions, headings or Markdown markup");
         assert(ChangesFromReleaseNotes("##수정사항\n수정 본문\n## 기타\n다른 본문")=="수정 본문","compact change headings work and the following section is excluded");
         assert(ChangesFromReleaseNotes("다운로드 안내만 있습니다.")=="" && ChangesFromReleaseNotes(null)=="","missing changes never fall back to showing download instructions");
+        assert(ChangesFromReleaseNotes("##변경사항##\n- 변경 본문\n## 확인\n검증")=="• 변경 본문","change headings also accept the requested compact form with trailing hashes");
+        using (var history=JsonDocument.Parse("""
+            [{"tag_name":"v0.0.1","body":"## 수정사항\n- installed"},
+             {"tag_name":"v0.2.0","body":"## 수정 사항\n- middle"},
+             {"tag_name":"v0.2.1","body":"##변경사항##\n- newest"},
+             {"tag_name":"v0.0.2","body":"윈도우: download\n\n- legacy fix"},
+             {"tag_name":"v0.2.1","body":"## 수정사항\n- duplicate"},
+             {"tag_name":"v0.0.2.1","draft":true,"body":"## 수정사항\n- hidden"},
+             {"tag_name":"v0.2.0.1","prerelease":true,"body":"## 수정사항\n- preview"},
+             {"tag_name":"v9.0.0","body":"## 수정사항\n- future"}]
+            """))
+        {
+            var pending=PendingReleaseNotes(history.RootElement.EnumerateArray(),new(0,0,1),new(0,2,1));
+            assert(pending.IndexOf("v0.2.1",StringComparison.Ordinal)<pending.IndexOf("v0.2.0",StringComparison.Ordinal) &&
+                pending.IndexOf("v0.2.0",StringComparison.Ordinal)<pending.IndexOf("v0.0.2",StringComparison.Ordinal) && pending.Contains("legacy fix"),
+                "all intermediate public versions are grouped newest first, including legacy notes");
+            assert(!new[]{"installed","hidden","preview","future","duplicate","download"}.Any(pending.Contains),
+                "installed, draft, prerelease, future and duplicate releases do not enter update notes");
+            assert(!PendingReleaseNotes(history.RootElement.EnumerateArray(),new(0,2,0),new(0,2,1)).Contains("middle"),"updating from the immediately previous version shows only later changes");
+        }
         using (var release=JsonDocument.Parse(JsonSerializer.Serialize(new {
             tag_name="v99.0.0",body=notes,assets=new[]{new{name="SekaiStorySkip-mac-arm64.dmg",browser_download_url=$"https://github.com/{ReleaseRepo}/releases/download/v99.0.0/SekaiStorySkip-mac-arm64.dmg"}}})))
             assert(ParseUpdateInfo(release.RootElement,true).Notes=="• 미읽음 처리\n• X 닫기","the web/Mac update dialog receives the same filtered notes as Windows");

@@ -2,6 +2,9 @@ using System.Drawing;
 
 internal static partial class Program
 {
+    static readonly HashSet<int> VirtualFilteredInstances = [];
+    static bool NeedsStoryFilterAtStart(Bitmap screen) => IsFilterFrame(screen) || IsMainEventList(screen) &&
+        (!IsStoryFilterActive(screen) || Selected is { } vm && VirtualFilteredInstances.Contains(vm.Index));
     static bool IsFilterFrame(Bitmap screen) => screen.Width == 960 && screen.Height == 540 &&
         Matches(screen, new("filter-apply", "filter-apply-label.png", 0, 0, 552, 482, 38, 21)) &&
         Matches(screen, new("filter-cancel", "filter-cancel-label.png", 0, 0, 348, 482, 85, 21)) &&
@@ -157,6 +160,7 @@ internal static partial class Program
             using var screen = await Capture();
             if (IsStoryFilterActive(screen))
             {
+                if (virtualOnly) VirtualFilteredInstances.Add(Selected!.Index); else VirtualFilteredInstances.Remove(Selected!.Index);
                 CopyEvidence(ShotPath, Path.Combine(Artifacts, $"instance-{Selected!.Index}-filter-applied.png"));
                 Log(virtualOnly ? "필터 적용 완료: 버라 미시청만 · 읽음 상태 전체 · 캐릭터 체크 전부 해제" : "필터 적용 완료: 미읽음/스킵·빨리감기만 · 종류/가상 라이브 전체 · 캐릭터 체크 전부 해제");
                 return;

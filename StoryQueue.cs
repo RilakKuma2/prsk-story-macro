@@ -133,7 +133,7 @@ internal static partial class Program
     static async Task ReadStoryQueue()
     {
         using (var start = await Capture())
-            if (IsMainEventList(start) || IsFilterFrame(start)) await ApplyUnreadFilter();
+            if (NeedsStoryFilterAtStart(start)) await ApplyUnreadFilter();
         var progress = LoadQueueProgress();
         var pass = new CatalogueReadPass();
         using (var initial = await Capture())
@@ -158,8 +158,9 @@ internal static partial class Program
             var card = CatalogueSignature(screen);
             // Saved completion is historical: newly unlocked/red-badge episodes must be checked again after recovery.
             // Only a card verified during this invocation may be skipped.
-            if (pass.AlreadyChecked(card))
+            if (pass.AlreadyChecked(card) || LockedStoriesInRun.AlreadyChecked(card))
             {
+                if (LockedStoriesInRun.AlreadyChecked(card)) Log("잠긴 화만 남았던 이벤트 기록 확인 · 다시 열지 않고 다음 이벤트 선택");
                 if (!await AdvanceCatalogue())
                 {
                     await SaveQueueProgress(progress with { Current = null, Stage = "complete" });
@@ -175,6 +176,7 @@ internal static partial class Program
             await OpenSelectedCatalogueStory();
             var verified = await ReadAndVerifyCurrentStory();
             pass.Confirm(card,verified);
+            if (verified.HasLocked) LockedStoriesInRun.Confirm(card,verified);
             progress = RecordVerifiedStory(progress,verified);
             await SaveQueueProgress(progress);
             await ReturnToStoryCatalogue();

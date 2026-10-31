@@ -18,7 +18,31 @@ internal static partial class Program
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return new(CurrentVersion.ToString(), null, "unreleased", null);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return ParseUpdateInfo(document.RootElement, OperatingSystem.IsMacOS());
+        var info=ParseUpdateInfo(document.RootElement, OperatingSystem.IsMacOS());
+        return info.Status=="available" ? info with {Notes=await ReadPendingReleaseNotes(http,document.RootElement)} : info;
+    }
+
+    static async Task<string> ReadPendingReleaseNotes(HttpClient http,JsonElement latestRelease)
+    {
+        var latest=Normalize(Version.Parse(latestRelease.GetProperty("tag_name").GetString()!.TrimStart('v','V')));
+        var releases=new List<JsonElement>{latestRelease.Clone()};
+        try
+        {
+            for(var page=1;;page++)
+            {
+                using var response=await http.GetAsync($"https://api.github.com/repos/{ReleaseRepo}/releases?per_page=100&page={page}");
+                response.EnsureSuccessStatusCode();
+                using var document=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                releases.AddRange(document.RootElement.EnumerateArray().Select(r=>r.Clone()));
+                if (!response.Headers.TryGetValues("Link",out var links) || !links.Any(l=>l.Contains("rel=\"next\"",StringComparison.Ordinal))) break;
+            }
+            return PendingReleaseNotes(releases,CurrentVersion,latest);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return T("이전 버전의 변경 내역을 불러오지 못했습니다.","以前のバージョンの変更履歴を取得できませんでした。","Earlier release notes could not be loaded.")+"\n\n"+
+                PendingReleaseNotes([latestRelease],CurrentVersion,latest);
+        }
     }
 
     static UpdateInfo ParseUpdateInfo(JsonElement release, bool mac)

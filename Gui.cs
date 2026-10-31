@@ -41,7 +41,7 @@ internal static partial class Program
         }, null, -1, false);
         using var view = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = window.BackColor };
         window.Controls.Add(view);
-        AddUpdateMenu(window,panel);
+        BindUpdateLifetime(window);
         window.Shown += async (_, _) =>
         {
             try

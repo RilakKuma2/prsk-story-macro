@@ -36,17 +36,20 @@ internal static partial class Program
         for (var i = 0; i < left.Length; i++) error += Math.Abs(left[i] - right[i]);
         return (double)error / left.Length < 4;
     }
-    sealed class CatalogueReadPass
+    sealed class CatalogueReadPass(int capacity=int.MaxValue)
     {
         readonly List<byte[]> checkedCards = [];
+        public void Clear() => checkedCards.Clear();
         public bool AlreadyChecked(byte[] card) => checkedCards.Any(done => SameCatalogueSignature(done,card));
         public void Confirm(byte[] card, EpisodeVerification verification)
         {
             if (!verification.BottomReached || verification.HasSkip || verification.HasUnread)
                 throw new InvalidOperationException("미읽음 검증이 끝나지 않은 이벤트는 확인 완료로 처리할 수 없습니다.");
-            checkedCards.Add(card);
+            if (!AlreadyChecked(card)) checkedCards.Add(card);
+            if (checkedCards.Count>capacity) checkedCards.RemoveAt(0);
         }
     }
+    static readonly CatalogueReadPass LockedStoriesInRun = new(512);
     static QueueProgress RecordVerifiedStory(QueueProgress progress, EpisodeVerification verification)
     {
         if (!verification.BottomReached || verification.HasSkip || verification.HasUnread)

@@ -34,6 +34,7 @@ internal static partial class Program
         // Original verification uses slow overlapping drags so no row is skipped between observations.
         AuthorizedInput = "input swipe 700 400 700 240 1200";
         try { await Shell(AuthorizedInput); } finally { AuthorizedInput = null; }
+        Log("남은 화 확인 · 이전 화 쪽으로 목록 이동");
         await Task.Delay(650, Stop.Token);
     }
     static async Task<EpisodeVerification> ScanEpisodePages(Func<Task<EpisodePage>> observe,

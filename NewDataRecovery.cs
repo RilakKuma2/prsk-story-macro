@@ -85,11 +85,13 @@ internal static partial class Program
     {
         var safetyResume=false;
         Interlocked.Exchange(ref PendingProtectionReason,null);
+        LockedStoriesInRun.Clear();
         WorkflowActive = true;
         try
         {
             await RunRecoveryAttempts(work, async interruption =>
             {
+                if (interruption.Cause==RecoveryCause.NewData) LockedStoriesInRun.Clear();
                 try { await SetReaderLease(false); } catch { }
                 if (CurrentFrames.Read(Selected!.Index) is { } frame)
                     SaveEvidenceImage(frame.Png, Path.Combine(Artifacts, $"instance-{Selected.Index}-before-recovery.webp"));
@@ -111,7 +113,7 @@ internal static partial class Program
                 if (continueAfterRecovery != null) await continueAfterRecovery();
             }, () => AutoResumeEnabled, singleEvent);
         }
-        finally { WorkflowActive = false; RestartAuthorized = false; Interlocked.Exchange(ref PendingProtectionReason,null); }
+        finally { WorkflowActive = false; RestartAuthorized = false; LockedStoriesInRun.Clear(); Interlocked.Exchange(ref PendingProtectionReason,null); }
     }
 
     // Only unknown-state failures count. Crashes/new data can recover repeatedly; restoring

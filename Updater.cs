@@ -16,16 +16,26 @@ internal static partial class Program
     static int UpdateCheckRunning;
     static volatile bool UpdateDownloading,UpdateApplying;
 
-    static void AddUpdateMenu(Form window,StoryPanel panel)
+    static void BindUpdateLifetime(Form window)
     {
-        var menu=new MenuStrip();
-        var check=new ToolStripMenuItem(T("업데이트 확인…","アップデートを確認…","Check for Updates…"));
-        check.Click+=async (_,_)=>await CheckForUpdate(window,panel,true);
-        menu.Items.Add(check);
-        menu.Items.Add(new ToolStripMenuItem("v"+CurrentVersion) { Enabled=false });
-        window.Controls.Add(menu);
-        window.MainMenuStrip=menu;
         window.FormClosing+=(_,e)=>{ if(UpdateDownloading && !UpdateApplying) e.Cancel=true; };
+    }
+
+    static DialogResult ConfirmUpdate(Form owner,string message,string notes)
+    {
+        using var dialog=new Form {Text=AppTitle,Width=700,Height=640,MinimumSize=new(480,360),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false,MinimizeBox=false,MaximizeBox=false,Icon=owner.Icon};
+        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,Padding=new Padding(18),ColumnCount=1,RowCount=3};
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var intro=new Label{Text=message,AutoSize=true,MaximumSize=new(640,0),Margin=new Padding(0,0,0,14)};
+        var changes=new TextBox{Text=notes.Replace("\n","\r\n"),ReadOnly=true,Multiline=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BackColor=System.Drawing.SystemColors.Window};
+        var buttons=new FlowLayoutPanel{FlowDirection=FlowDirection.RightToLeft,AutoSize=true,Dock=DockStyle.Fill,Padding=new Padding(0,14,0,0)};
+        var cancel=new Button{Text=T("취소","キャンセル","Cancel"),DialogResult=DialogResult.No,AutoSize=true};
+        var apply=new Button{Text=T("업데이트","更新","Update"),DialogResult=DialogResult.Yes,AutoSize=true};
+        buttons.Controls.Add(cancel);buttons.Controls.Add(apply);
+        layout.Controls.Add(intro,0,0);layout.Controls.Add(changes,0,1);layout.Controls.Add(buttons,0,2);
+        dialog.Controls.Add(layout);dialog.AcceptButton=apply;dialog.CancelButton=cancel;
+        return dialog.ShowDialog(owner);
     }
 
     static async Task CheckForUpdate(Form window,StoryPanel panel,bool manual=false)
@@ -66,7 +76,7 @@ internal static partial class Program
                 if(manual) Notice(T("새 버전의 Windows 설치 파일이 아직 없습니다.","新バージョンのWindows用ファイルがまだありません。","The Windows package is not available yet."));
                 return;
             }
-            var notes=ChangesFromReleaseNotes(root.TryGetProperty("body",out var body)?body.GetString():null);
+            var notes=await ReadPendingReleaseNotes(http,root);
 
             if(panel.UpdateBusy || OtherMacroProcesses())
             {
@@ -75,9 +85,9 @@ internal static partial class Program
                     $"Version {tag} is available (this is v{CurrentVersion}).\nA macro is running, so it is not updated now. Stop them all and reopen to update."),AppTitle,MessageBoxButtons.OK,MessageBoxIcon.Information));
                 return;
             }
-            var answer=(DialogResult)window.Invoke(()=>MessageBox.Show(window,T($"새 버전 {tag}이(가) 나왔어요 (지금 v{CurrentVersion}).\n지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.",
+            var answer=(DialogResult)window.Invoke(()=>ConfirmUpdate(window,T($"새 버전 {tag}이(가) 나왔어요 (지금 v{CurrentVersion}).\n지금 업데이트할까요? 받은 뒤 자동으로 다시 열려요.",
                 $"新しいバージョン {tag} があります（現在 v{CurrentVersion}）。\n今すぐ更新しますか？取得後に自動で開き直します。",
-                $"Version {tag} is available (this is v{CurrentVersion}).\nUpdate now? The app reopens by itself afterwards.")+(notes is { Length: >0 }?"\n\n"+notes:""),AppTitle,MessageBoxButtons.YesNo,MessageBoxIcon.Information));
+                $"Version {tag} is available (this is v{CurrentVersion}).\nUpdate now? The app reopens by itself afterwards."),notes));
             if(answer!=DialogResult.Yes) return;
             // Story workers run in this panel's process; hold its device gate while replacing the app.
             if(!panel.TryBeginUpdate())
