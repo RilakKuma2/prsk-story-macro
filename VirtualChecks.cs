@@ -11,6 +11,21 @@ internal static partial class Program
         using var confirm=Load("virtual-intro-skip"); using var eventList=Load("virtual-event");
         using var reward=Load("virtual-reward"); using var catalogue=Load("virtual-catalogue");
         using var filter=Load("virtual-filter-only");
+        using var guideFirst=Load("virtual-lobby-guide-first");using var guideNext=Load("virtual-lobby-guide-next");
+        using var guideLast=Load("virtual-lobby-guide-last");using var scheduled=Load("virtual-lobby-scheduled");
+        using var currentEvent=Load("virtual-current-catalogue");
+        Assert(IsCurrentVirtualEvent(currentEvent),"ongoing catalogue event is skipped before opening or seeing the tutorial");
+        Assert(!IsCurrentVirtualEvent(catalogue) && !IsCurrentVirtualEvent(eventList),"past events and episode screens are not classified as ongoing catalogue cards");
+        using(var withoutMark=new Bitmap(currentEvent))
+        {
+            using(var graphics=Graphics.FromImage(withoutMark))graphics.FillRectangle(Brushes.Black,106,307,44,14);
+            Assert(!IsCurrentVirtualEvent(withoutMark),"the 開催中 mark is required; the first position alone never skips a past event");
+        }
+        foreach(var guide in new[]{guideFirst,guideNext,guideLast})
+            Assert(IsVirtualLobbyGuide(guide) && VirtualAction(guide)?.Name=="virtual-lobby-guide-next-or-close","all three actual optional tutorial pages use the confirmed next/close button");
+        Assert(IsVirtualLobby(scheduled) && VirtualAction(scheduled)?.Name=="virtual-lobby-back","scheduled current-event lobby uses top-left back instead of trying to enter a room");
+        Assert(!IsVirtualLobby(eventList) && !IsVirtualLobby(dark) && !IsVirtualLobby(guideFirst),"episode list, playback and modal tutorial never trigger lobby back");
+        Assert(!IsVirtualLobbyGuide(eventList) && !IsVirtualLobbyGuide(bright) && !IsVirtualLobbyGuide(scheduled),"unrelated cyan controls never trigger tutorial taps");
         using var locked=Load("virtual-lock-badge");using var lockNotice=Load("virtual-locked-dialog");
         Assert(IsVirtualLocked(locked) && !IsVirtualLocked(eventList),"lock glyph skips without reading a story");
         Assert(IsVirtualLockNotice(lockNotice) && VirtualAction(lockNotice)?.Name=="virtual-locked-close","variable event-name lock notice closes without restart");

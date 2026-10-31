@@ -4,6 +4,16 @@ using System.Text.Json;
 internal static partial class Program
 {
     static readonly TimeSpan VirtualWatchTime = TimeSpan.FromSeconds(15);
+    enum VirtualWatchResult { Watched, Locked, CurrentEventLobby }
+    static bool IsCurrentVirtualEvent(Bitmap screen) => IsMainEventList(screen) &&
+        LightGlyph(screen,"catalogue-current-event.png",106,307,225);
+    static bool IsVirtualLobby(Bitmap screen) => screen.Width==960 && screen.Height==540 &&
+        LightGlyph(screen,"virtual-lobby-heading.png",503,98,210) &&
+        LightGlyph(screen,"virtual-lobby-room.png",815,105,210);
+    static bool IsVirtualLobbyGuide(Bitmap screen) => screen.Width==960 && screen.Height==540 &&
+        Matches(screen,new("virtual-guide-pages","virtual-lobby-guide-pages.png",0,0,452,489,56,23)) &&
+        (Matches(screen,new("virtual-guide-next","virtual-lobby-guide-next.png",0,0,702,490,37,21)) ||
+         Matches(screen,new("virtual-guide-close","virtual-lobby-guide-close.png",0,0,691,490,60,21)));
     static string VirtualQueuePath => Path.Combine(Artifacts,$"instance-{Selected!.Index}-virtual-queue.json");
     static QueueProgress LoadVirtualProgress()
     {
@@ -36,6 +46,8 @@ internal static partial class Program
     static bool IsVirtualLocked(Bitmap s) => LightGlyph(s,"virtual-lock-glyph.png",118,463,220);
     static HomeAction? VirtualAction(Bitmap s)
     {
+        if(IsVirtualLobbyGuide(s)) return new("virtual-lobby-guide-next-or-close",720,500);
+        if(IsVirtualLobby(s)) return new("virtual-lobby-back",32,32);
         if(IsVirtualLockNotice(s)) return new("virtual-locked-close",480,318);
         if(HasRewardsObtainedText(s)) return new("virtual-reward-close",480,315);
         if(IsStoryDownload(s)) return new("story-download",571,405);
@@ -46,7 +58,7 @@ internal static partial class Program
         if(IsEpisodeList(s)) return IsVirtualWatched(s) ? null : new("virtual-event-open",112,482);
         return null;
     }
-    static async Task<bool> WatchCurrentVirtualLive()
+    static async Task<VirtualWatchResult> WatchCurrentVirtualLive()
     {
         var lastKnown=DateTime.UtcNow; DateTime? entered=null; var lastTap=DateTime.MinValue;
         var downloadPending=false;
@@ -55,19 +67,37 @@ internal static partial class Program
         {
             Stop.Token.ThrowIfCancellationRequested(); await EnsureGameForeground();
             using var screen=await Capture();
+            if(IsVirtualLobbyGuide(screen))
+            {
+                if(DateTime.UtcNow-lastTap>TimeSpan.FromSeconds(1) &&
+                    await GuardedTap(new("virtual-lobby-guide-next-or-close",720,500),VirtualAction))
+                    lastTap=DateTime.UtcNow;
+                lastKnown=DateTime.UtcNow;
+                await Task.Delay(500,Stop.Token);continue;
+            }
+            if(IsVirtualLobby(screen))
+            {
+                CopyEvidence(ShotPath,Path.Combine(Artifacts,$"instance-{Selected!.Index}-virtual-current-event-lobby.webp"));
+                if(await GuardedTap(new("virtual-lobby-back",32,32),VirtualAction))
+                {
+                    Log("진행 중 이벤트의 버라 선택창 · 뒤로가기 후 다음 버라로 이동");
+                    return VirtualWatchResult.CurrentEventLobby;
+                }
+                continue;
+            }
             if(IsVirtualLockNotice(screen))
             {
                 await GuardedTap(new("virtual-locked-close",480,318),VirtualAction);
-                await Task.Delay(500,Stop.Token);Log("버라 잠금 안내 · 건너뛰기");return false;
+                await Task.Delay(500,Stop.Token);Log("버라 잠금 안내 · 건너뛰기");return VirtualWatchResult.Locked;
             }
-            if(IsVirtualLocked(screen)) { Log("버라 자물쇠 표시 · 건너뛰기");return false; }
+            if(IsVirtualLocked(screen)) { Log("버라 자물쇠 표시 · 건너뛰기");return VirtualWatchResult.Locked; }
             // Close the variable-stamp reward banner before checking the small watched label behind it.
             if(HasRewardsObtainedText(screen))
             {
                 await GuardedTap(new("virtual-reward-close",480,315),VirtualAction);
                 lastKnown=DateTime.UtcNow; await Task.Delay(500,Stop.Token); continue;
             }
-            if(IsVirtualWatched(screen)) { Log("버라 참가 완료 글자 확인 · 성공"); return true; }
+            if(IsVirtualWatched(screen)) { Log("버라 참가 완료 글자 확인 · 성공"); return VirtualWatchResult.Watched; }
             var action=VirtualAction(screen);
             if(entered!=null && action?.Name=="virtual-event-open")
             {
@@ -115,12 +145,12 @@ internal static partial class Program
                 // The filter may already have selected a different card on returning.
                 if(progress.Current is { } card)
                 {
-                    if(watched && !progress.Completed.Any(done=>SameCatalogueSignature(done,card))) progress=progress with { Completed=[..progress.Completed,card] };
-                    if(!watched) locked.Add(card);
+                    if(watched==VirtualWatchResult.Watched && !progress.Completed.Any(done=>SameCatalogueSignature(done,card))) progress=progress with { Completed=[..progress.Completed,card] };
+                    if(watched!=VirtualWatchResult.Watched) locked.Add(card);
                     progress=progress with {Current=null,Stage="catalogue"};
                 }
                 await SaveVirtualProgress(progress);
-                if(!watched && !await AdvanceAfterLockedVirtual()){Log("남은 버라는 잠금 상태 · 처리 완료");return;}
+                if(watched!=VirtualWatchResult.Watched && !await AdvanceAfterSkippedVirtual()){Log("시청 가능한 다음 버라 없음 · 처리 완료");return;}
                 await ApplyUnreadFilter(virtualOnly:true);
             }
         }
@@ -135,9 +165,18 @@ internal static partial class Program
                 continue;
             }
             var card=CatalogueSignature(catalogue);
+            // The ongoing event opens the live-selection lobby instead of an archived replay.
+            // Its 開催中 badge remains visible between manual runs, so skip before opening it.
+            if(IsCurrentVirtualEvent(catalogue))
+            {
+                Log("開催中 표시 확인 · 진행 중 이벤트는 건너뛰고 한 칸 아래 버라 선택");
+                progress=progress with {Current=null,Stage="catalogue"};await SaveVirtualProgress(progress);
+                if(!await AdvanceAfterSkippedVirtual()){Log("시청 가능한 다음 버라 없음 · 처리 완료");return;}
+                continue;
+            }
             if(locked.Any(done=>SameCatalogueSignature(done,card)))
             {
-                if(!await AdvanceAfterLockedVirtual()){Log("남은 버라는 잠금 상태 · 처리 완료");return;}
+                if(!await AdvanceAfterSkippedVirtual()){Log("남은 버라는 잠금 상태 · 처리 완료");return;}
                 continue;
             }
             if(progress.Completed.Any(done=>SameCatalogueSignature(done,card)))
@@ -148,11 +187,11 @@ internal static partial class Program
             progress=progress with { Current=card,Stage="watching" }; await SaveVirtualProgress(progress);
             await OpenSelectedCatalogueStory(virtualOnly:true);
             var watched=await WatchCurrentVirtualLive();
-            if(!watched)
+            if(watched!=VirtualWatchResult.Watched)
             {
                 locked.Add(card);progress=progress with {Current=null,Stage="catalogue"};await SaveVirtualProgress(progress);
                 await ReturnToStoryCatalogue(virtualOnly:true);
-                if(!await AdvanceAfterLockedVirtual()){Log("남은 버라는 잠금 상태 · 처리 완료");return;}
+                if(!await AdvanceAfterSkippedVirtual()){Log("시청 가능한 다음 버라 없음 · 처리 완료");return;}
                 continue;
             }
             // Never mark success from a timer or reward stamp; WatchCurrentVirtualLive returns only for 参加済み.
@@ -160,7 +199,7 @@ internal static partial class Program
             await SaveVirtualProgress(progress); await ReturnToStoryCatalogue(virtualOnly:true);
         }
     }
-    static async Task<bool> AdvanceAfterLockedVirtual()
+    static async Task<bool> AdvanceAfterSkippedVirtual()
     {
         using var before=await CaptureCatalogue(allowEmpty:true);
         if(IsEmptyVirtualCatalogue(before) || !HasNextCatalogueCard(before)) return false;
@@ -171,7 +210,7 @@ internal static partial class Program
         // The catalogue snaps to the next event when dragged a little; never tap an episode to unlock a live.
         AuthorizedInput="input swipe 180 410 180 310 700";
         try{await Shell(AuthorizedInput);}finally{AuthorizedInput=null;}
-        Log("잠긴 버라 건너뜀 · 목록을 조금 내려 다음 버라 선택");
+        Log("버라 건너뜀 · 목록을 한 칸 내려 다음 버라 선택");
         for(var i=0;i<12;i++)
         {
             await Task.Delay(500,Stop.Token);using var next=await CaptureCatalogue(allowEmpty:true);
