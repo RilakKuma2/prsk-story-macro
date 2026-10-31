@@ -7,7 +7,15 @@ internal static partial class Program
     static Version Normalize(Version version) => version.Revision > 0
         ? new(version.Major, version.Minor, Math.Max(version.Build, 0), version.Revision)
         : new(version.Major, version.Minor, Math.Max(version.Build, 0));
-    sealed record UpdateInfo(string Current, string? Latest, string Status, string? DownloadUrl, string Notes = "");
+    sealed record UpdateInfo(string Current, string? Latest, string Status, string? DownloadUrl, string Notes = "", bool CanSelfUpdate = false);
+
+    static string? MacAppBundlePath()
+    {
+        if (!OperatingSystem.IsMacOS()) return null;
+        var bundle = Path.GetFullPath(Path.Combine(Root, "..", "..", ".."));
+        return bundle.EndsWith(".app", StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(Path.Combine(bundle, "Contents", "MacOS", "SekaiStorySkip")) ? bundle : null;
+    }
 
     static async Task<UpdateInfo> ReadUpdateInfo()
     {
@@ -18,7 +26,7 @@ internal static partial class Program
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return new(CurrentVersion.ToString(), null, "unreleased", null);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var info=ParseUpdateInfo(document.RootElement, OperatingSystem.IsMacOS());
+        var info=ParseUpdateInfo(document.RootElement, OperatingSystem.IsMacOS()) with { CanSelfUpdate = MacAppBundlePath() != null };
         return info.Status=="available" ? info with {Notes=await ReadPendingReleaseNotes(http,document.RootElement)} : info;
     }
 

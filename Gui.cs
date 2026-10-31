@@ -89,4 +89,5 @@ internal static partial class Program
         server.StopAsync().GetAwaiter().GetResult();
         server.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
+    static Task ApplyMacSelfUpdate(string _) => throw new NotSupportedException();
 }

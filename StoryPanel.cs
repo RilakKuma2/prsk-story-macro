@@ -73,6 +73,16 @@ internal static partial class Program
                 try { return Results.Json(await ReadUpdateInfo()); }
                 catch (Exception ex) { return Results.Json(new { error = T("업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.", "更新を確認できませんでした。接続を確認してください。", "Could not check for updates. Check your connection."), detail = ex.Message }, statusCode: 503); }
             });
+            app.MapPost("/api/apply-update", async () =>
+            {
+                if (OperatingSystem.IsMacOS() && MacAppBundlePath() is { } bundle)
+                {
+                    if (busy || !TryBeginUpdate()) return Results.Conflict(new { error = T("진행 중인 작업을 먼저 멈춰주세요.", "実行中の処理を先に停止してください。", "Stop the current task first.") });
+                    try { await ApplyMacSelfUpdate(bundle); return Results.Ok(); }
+                    catch (Exception ex) { EndUpdate(); return Results.BadRequest(new { error = ex.Message }); }
+                }
+                return Results.BadRequest(new { error = T("자동 설치를 지원하지 않는 환경입니다.", "自動更新に対応していない環境です。", "Self-update is not supported in this environment.") });
+            });
             app.MapGet("/app-icon.png",()=>Results.Stream(Assembly.GetExecutingAssembly().GetManifestResourceStream("web.app-icon.png")!,"image/png"));
             app.MapGet("/example/{kind}", (string kind) => kind is "all" or "one" ? Results.File(Path.Combine(Root,"tests","fixtures",kind=="all"?"catalogue-after-completion.png":"top-story-episodes.png"),"image/png") : Results.NotFound());
             app.MapGet("/api/state", (HttpContext context) => Results.Json(new
