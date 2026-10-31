@@ -76,6 +76,12 @@ internal static partial class Program
             Reject(()=>ValidateProcessArgs(["-s",Serial,"shell","am force-stop "+Package],false),"manual restart cannot repeat without authorization");
         }
         finally { Selected=saved; AutoResumeEnabled=auto; ManualRestartAuthorized=false; }
+        using (var memories = new Bitmap(Path.Combine(Root,"tests","fixtures","single-event-memories-partly-locked.png")))
+        {
+            Assert(IsEpisodeList(memories),"single event accepts the current Memories list with a locked next episode");
+            Assert(EpisodeBadgeRows(memories,true).Count==1 && EpisodeBadgeRows(memories,false).Count==0,"current Memories list has one readable SKIP episode");
+            Assert(FindEpisodeToRead(memories,true) is { X:640,Y:>=190 and <=230 },"single event selects the SKIP first episode instead of the locked second episode");
+        }
         VerifySingleEventRecovery(Assert).GetAwaiter().GetResult();
         VerifyUpdateInfo(Assert);
         Log($"VM/시작 모드 검사 {checks}개 통과");

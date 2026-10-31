@@ -7,6 +7,7 @@ internal static partial class Program
     {
         await ConnectVm();
         using var first = await CaptureUncoveredEpisodeList();
+        Log("1개 이벤스만 · 현재 에피소드 목록의 SKIP/미읽음부터 시작 · 자동 재개 없음");
         await RunWithNewDataRecovery(async () =>
         {
             await ReadAndVerifyCurrentStory();
