@@ -69,25 +69,25 @@ internal static partial class Program
     static HomeAction? FindCheckedFilterAction(Bitmap screen) => CheckedFilterBoxes(screen).FirstOrDefault() is { X: > 0 } point
         ? new("filter-uncheck-existing", point.X, point.Y) : null;
 
-    static async Task ClearVisibleFilterChecks()
+    static async Task ClearVisibleFilterChecks(Func<Task<Bitmap>>? capture = null)
     {
         for (var attempt = 0; attempt < 40; attempt++)
         {
-            using var screen = await Capture();
-            if (!IsFilterFrame(screen)) throw new InvalidOperationException("필터창이 사라져 체크 해제를 중지했습니다.");
+            using var screen = await (capture?.Invoke() ?? Capture());
+            if (!IsFilterFrame(screen)) throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터창이 사라져 체크 해제를 중지했습니다.");
             var action = FindCheckedFilterAction(screen);
             if (action == null) return;
             if (!await GuardedTap(action, FindCheckedFilterAction)) continue;
             await Task.Delay(650, Stop.Token);
         }
-        throw new InvalidOperationException("캐릭터 체크 해제 확인에 실패했습니다. 적용하지 않습니다.");
+        throw new RecoveryNeeded(RecoveryCause.UnknownState, "캐릭터 체크 해제 확인에 실패했습니다. 적용하지 않습니다.");
     }
     static async Task ScrollFilter(bool down)
     {
         await Guard();
-        if (!(await Foreground()).Contains(Package + "/")) throw new InvalidOperationException("전면 앱이 바뀌었습니다.");
+        await EnsureGameForeground();
         using var verify = await Capture();
-        if (!IsFilterFrame(verify)) throw new InvalidOperationException("필터창이 아니므로 스크롤하지 않습니다.");
+        if (!IsFilterFrame(verify)) throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터창이 아니므로 스크롤하지 않습니다.");
         AuthorizedInput = down ? "input swipe 718 426 718 150 450" : "input swipe 718 150 718 426 450";
         try { await Shell(AuthorizedInput); } finally { AuthorizedInput = null; }
         await Task.Delay(800, Stop.Token);
@@ -108,7 +108,7 @@ internal static partial class Program
                 return;
             }
         }
-        throw new InvalidOperationException("필터 목록 끝을 확인하지 못했습니다. 적용하지 않습니다.");
+        throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터 목록 끝을 확인하지 못했습니다. 적용하지 않습니다.");
     }
     static async Task ReachFilterTop()
     {
@@ -118,7 +118,7 @@ internal static partial class Program
             if (IsFilterTop(screen)) return;
             await ScrollFilter(false);
         }
-        throw new InvalidOperationException("필터 상단을 찾지 못했습니다.");
+        throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터 상단을 찾지 못했습니다.");
     }
     static async Task ApplyUnreadFilter(bool virtualOnly = false)
     {
@@ -129,10 +129,10 @@ internal static partial class Program
             if (IsMainEventList(screen) || virtualOnly && IsEmptyVirtualCatalogue(screen))
             {
                 if (!await GuardedTap(new("filter-open", 759, 33), s => IsMainEventList(s) || virtualOnly && IsEmptyVirtualCatalogue(s) ? new("filter-open", 759, 33) : null))
-                    throw new InvalidOperationException("필터 열기 전 화면이 바뀌었습니다.");
+                    throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터 열기 전 화면이 바뀌었습니다.");
                 await Task.Delay(800, Stop.Token);
             }
-            else if (!IsFilterFrame(screen)) throw new InvalidOperationException("스토리 목록이나 필터창이 아닙니다.");
+            else if (!IsFilterFrame(screen)) throw new RecoveryNeeded(RecoveryCause.UnknownState, "스토리 목록이나 필터창이 아닙니다.");
         }
         await ReachFilterTop();
         for (var attempt = 0; attempt < 5; attempt++)
@@ -144,13 +144,13 @@ internal static partial class Program
             await Task.Delay(700, Stop.Token);
         }
         using (var screen = await Capture())
-            if (!Desired(screen)) throw new InvalidOperationException("필터 설정을 확인하지 못했습니다.");
+            if (!Desired(screen)) throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터 설정을 확인하지 못했습니다.");
         await VerifyAndClearAllFilterChecks();
         await ReachFilterTop();
         using (var screen = await Capture())
-            if (!Desired(screen) || CheckedFilterBoxes(screen).Count != 0) throw new InvalidOperationException("적용 직전 필터 상태가 달라졌습니다.");
+            if (!Desired(screen) || CheckedFilterBoxes(screen).Count != 0) throw new RecoveryNeeded(RecoveryCause.UnknownState, "적용 직전 필터 상태가 달라졌습니다.");
         if (!await GuardedTap(new("filter-apply", 570, 491), s => Desired(s) && CheckedFilterBoxes(s).Count == 0 ? new("filter-apply", 570, 491) : null))
-            throw new InvalidOperationException("필터 적용 직전 화면이 바뀌었습니다.");
+            throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터 적용 직전 화면이 바뀌었습니다.");
         for (var wait = 0; wait < 15; wait++)
         {
             await Task.Delay(600, Stop.Token);
@@ -162,6 +162,6 @@ internal static partial class Program
                 return;
             }
         }
-        throw new InvalidOperationException("필터 적용 결과를 확인하지 못했습니다.");
+        throw new RecoveryNeeded(RecoveryCause.UnknownState, "필터 적용 결과를 확인하지 못했습니다.");
     }
 }

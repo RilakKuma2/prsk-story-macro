@@ -2,6 +2,39 @@ using System.Text.Json;
 
 internal static partial class Program
 {
+    static async Task VerifyFilterRecovery(Action<bool, string> assert)
+    {
+        Task LoseFilter() => ClearVisibleFilterChecks(() =>
+            Task.FromResult(new Bitmap(Path.Combine(Root,"tests","fixtures","catalogue-after-completion.png"))));
+        foreach (var (autoResume, singleEvent) in new[] { (true,false), (false,false), (true,true) })
+        {
+            var revoked=0;var restarted=0;var resumed=0;var stopped=false;
+            try
+            {
+                await RunRecoveryAttempts(LoseFilter,
+                    _ => { revoked++;return Task.CompletedTask; },
+                    interruption =>
+                    {
+                        assert(interruption.Cause==RecoveryCause.UnknownState,"a disappearing filter reaches state recovery instead of the terminal error handler");
+                        restarted++;return Task.FromResult(true);
+                    },
+                    _ => { resumed++;return Task.CompletedTask; },() => autoResume,singleEvent);
+            }
+            catch (OperationCanceledException) { stopped=true; }
+            var recover=autoResume && !singleEvent;
+            assert(revoked==1 && restarted==(recover?1:0) && resumed==(recover?1:0) && stopped!=recover,
+                $"filter loss obeys auto resume={autoResume}, single event={singleEvent}");
+        }
+        var restarts=0;var failed=false;
+        try
+        {
+            await RunRecoveryAttempts(LoseFilter,_ => Task.CompletedTask,
+                _ => { restarts++;return Task.FromResult(true); },_ => LoseFilter(),() => true);
+        }
+        catch (InvalidOperationException) { failed=true; }
+        assert(failed && restarts==1,"repeated filter restoration failure stops after two unknown states without endless restarts");
+    }
+
     static async Task VerifySingleEventRecovery(Action<bool, string> assert)
     {
         foreach (var cause in Enum.GetValues<RecoveryCause>())

@@ -107,9 +107,9 @@ internal static partial class Program
                 await EnsureRunning();
                 await ReturnHome();
                 await EnterMainEventStories();
-                resetUnknownFailures();
-                Log("스토리 목록 재진입 성공 · 상태 인식 실패 카운트 초기화");
                 if (!singleEvent) await ApplyUnreadFilter(virtualLive);
+                resetUnknownFailures();
+                Log("스토리 목록·필터 복원 성공 · 상태 인식 실패 카운트 초기화");
                 Log("자동 재개 완료 · 메인 / 이벤트 스토리 진입 및 미읽음/스킵 필터 복원.");
                 if (continueAfterRecovery != null) await continueAfterRecovery();
             }, () => AutoResumeEnabled, singleEvent);
@@ -117,8 +117,8 @@ internal static partial class Program
         finally { WorkflowActive = false; RestartAuthorized = false; Interlocked.Exchange(ref PendingProtectionReason,null); }
     }
 
-    // Only unknown-state failures count. Crashes/new data can recover repeatedly; reaching
-    // the story catalogue clears the counter before continuing the current work.
+    // Only unknown-state failures count. Crashes/new data can recover repeatedly; restoring
+    // the story catalogue and filters clears the counter before continuing the current work.
     static async Task RunRecoveryAttempts(Func<Task> work, Func<RecoveryNeeded, Task> revoke,
         Func<RecoveryNeeded, Task<bool>> restart, Func<Action, Task> resume, Func<bool> enabled, bool singleEvent = false)
     {
