@@ -181,11 +181,11 @@ internal static partial class Program
     static string? ReaderBlockReason(Bitmap screen)
     {
         if (IsNewDataNotice(screen)) return "new-data-notice";
+        if (FindStoryMenuClose(screen) != null) return "story-menu-open";
         if (!IsStoryReader(screen)) return "ellipsis-not-recognized";
         if (FindNoticeAction(screen) != null) return "notice-open";
         if (IsStoryVoice(screen)) return "voice-dialog";
         if (IsEpisodeList(screen)) return "episode-list";
-        if (Matches(screen, new("expanded-story-menu", "story-skip.png", 0, 0, 800, 210, 125, 30))) return "story-menu-open";
         if (FindColorDialogClose(screen) != null) return "gray-cyan-popup";
         return null;
     }
@@ -303,12 +303,28 @@ internal static partial class Program
         var lastKnown = DateTime.UtcNow; var lastAction = DateTime.MinValue;
         var listFrames = 0;
         DateTime? transitionSince = null;
+        DateTime? menuOpenedAt = null;
         while (true)
         {
             await Guard();
             await EnsureGameForeground();
             using var screen = await Capture();
-            if (await DismissNotice(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; continue; }
+            if (await DismissNotice(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; menuOpenedAt = null; continue; }
+            var menuWasOpen = menuOpenedAt != null;
+            var menuClose = DelayedStoryMenuClose(screen,DateTime.UtcNow,ref menuOpenedAt);
+            if (menuOpenedAt != null)
+            {
+                lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null;
+                if (!menuWasOpen) Log("오토·스킵 버튼으로 스토리 메뉴 확인 · 20초 후 우상단 X 닫기");
+                if (menuClose != null && DateTime.UtcNow - lastAction > TimeSpan.FromSeconds(2) &&
+                    await GuardedTap(menuClose,FindStoryMenuClose))
+                {
+                    lastAction = DateTime.UtcNow;
+                    Log("스토리 메뉴 20초 대기 완료 · 우상단 X 닫고 이어 읽기");
+                }
+                await Task.Delay(350,Stop.Token);
+                continue;
+            }
             var action = FindReaderAction(screen);
             if (action != null)
             {

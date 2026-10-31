@@ -85,6 +85,7 @@ internal static partial class Program
         VerifyUnreadResume(Assert).GetAwaiter().GetResult();
         VerifySingleEventRecovery(Assert).GetAwaiter().GetResult();
         VerifyFilterRecovery(Assert).GetAwaiter().GetResult();
+        VerifyStoryMenuClose(Assert);
         VerifyUpdateInfo(Assert);
         Log($"VM/시작 모드 검사 {checks}개 통과");
     }
