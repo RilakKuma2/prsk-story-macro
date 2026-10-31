@@ -60,7 +60,7 @@ internal static partial class Program
         if (args[0] == "check-screen")
         {
             using var screen = new Bitmap(args[1]);
-            Log($"NewData={IsNewDataNotice(screen)}, Home={IsAreaMain(screen)}, ColorDialogX={FindColorDialogClose(screen)}, HomeAction={FindHomeAction(screen)?.Name ?? "none"}, StoryAction={FindStoryAction(screen)?.Name ?? "none"}, StoryList={IsMainEventList(screen)}, Percent={await ReadStoryPercent(screen)}, Filter={IsFilterFrame(screen)}, Checks={CheckedFilterBoxes(screen).Count}, Episodes={IsEpisodeList(screen)}, SKIP={string.Join(',', EpisodeBadgeRows(screen, true))}, Unread={string.Join(',', EpisodeBadgeRows(screen, false))}, ReaderAction={FindReaderAction(screen)?.Name ?? "none"}");
+            Log($"NewData={IsNewDataNotice(screen)}, Home={IsAreaMain(screen)}, ColorDialogX={FindColorDialogClose(screen)}, HomeAction={FindHomeAction(screen)?.Name ?? "none"}, StoryAction={FindStoryAction(screen)?.Name ?? "none"}, StoryList={IsMainEventList(screen)}, Percent={await ReadStoryPercent(screen)}, Filter={IsFilterFrame(screen)}, Checks={CheckedFilterBoxes(screen).Count}, Episodes={IsEpisodeList(screen)}, SKIP={string.Join(',', EpisodeBadgeRows(screen, true))}, Unread={string.Join(',', EpisodeBadgeRows(screen, false))}, Locked={string.Join(',', EpisodeLockedRows(screen))}, ReaderAction={FindReaderAction(screen)?.Name ?? "none"}");
             return 0;
         }
         if (args[0] == "list") { Log(JsonSerializer.Serialize(await ListVms(), new JsonSerializerOptions { WriteIndented = true })); return 0; }

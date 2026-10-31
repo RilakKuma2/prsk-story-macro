@@ -91,7 +91,33 @@ internal static partial class Program
         }
         return ink >= 100 && missing <= ink * .15 && extra <= ink * .2;
     }
-    static List<int> EpisodeBadgeRows(Bitmap screen, bool skip)
+    static List<int> EpisodeLockedRows(Bitmap screen)
+    {
+        var rows = new List<int>();
+        if (!IsEpisodeList(screen)) return rows;
+        using var glyph = new Bitmap(Path.Combine(Root, "templates", "episode-lock-glyph.png"));
+        static bool White(Color p) => p.R > 235 && p.G > 235 && p.B > 235;
+        var samples = new List<(int X, int Y, bool Ink)>();
+        for (var y = 0; y < glyph.Height; y += 2) for (var x = 0; x < glyph.Width; x += 2)
+            samples.Add((x, y, White(glyph.GetPixel(x, y))));
+        var ink = samples.First(p => p.Ink);
+        for (var top = 75; top + glyph.Height < 490; top++)
+        {
+            foreach (var left in new[] { 676, 678, 680, 682, 684 })
+            {
+                if (!White(screen.GetPixel(left + ink.X, top + ink.Y))) continue;
+                var bad = 0;
+                foreach (var p in samples)
+                    if (White(screen.GetPixel(left + p.X, top + p.Y)) != p.Ink && ++bad > samples.Count * .10) break;
+                if (bad > samples.Count * .10) continue;
+                rows.Add(top + glyph.Height / 2);
+                top += glyph.Height / 2;
+                break;
+            }
+        }
+        return rows;
+    }
+    static List<int> EpisodeBadgeRows(Bitmap screen, bool skip, IReadOnlyList<int>? lockedRows = null)
     {
         var rows = new List<int>();
         if (!IsEpisodeList(screen)) return rows;
@@ -100,7 +126,9 @@ internal static partial class Program
             for (var x = skip ? 834 : 878; x <= (skip ? 846 : 884); x++)
                 if (DifferenceAt(screen, expected, x, y, expected.Width, expected.Height) < 9)
                 { if (rows.Count == 0 || y - rows[^1] > 12) rows.Add(y); break; }
-        return rows;
+        if (rows.Count == 0) return rows;
+        lockedRows ??= EpisodeLockedRows(screen);
+        return rows.Where(y => !lockedRows.Any(locked => Math.Abs(locked - (y + 32)) < 38)).ToList();
     }
     static readonly Step StoryCrystal = new("crystal", "story-reward-crystal.png", 0, 0, 414, 228, 42, 44);
     static readonly Step StoryTicket = new("ticket", "story-reward-ticket.png", 0, 0, 495, 239, 52, 31);

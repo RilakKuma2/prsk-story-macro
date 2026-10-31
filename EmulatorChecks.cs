@@ -82,6 +82,7 @@ internal static partial class Program
             Assert(EpisodeBadgeRows(memories,true).Count==1 && EpisodeBadgeRows(memories,false).Count==0,"current Memories list has one readable SKIP episode");
             Assert(FindEpisodeToRead(memories,true) is { X:640,Y:>=190 and <=230 },"single event selects the SKIP first episode instead of the locked second episode");
         }
+        VerifyUnreadResume(Assert).GetAwaiter().GetResult();
         VerifySingleEventRecovery(Assert).GetAwaiter().GetResult();
         VerifyUpdateInfo(Assert);
         Log($"VM/시작 모드 검사 {checks}개 통과");

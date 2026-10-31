@@ -10,8 +10,8 @@ internal static partial class Program
         Log("1개 이벤스만 · 현재 에피소드 목록의 SKIP/미읽음부터 시작 · 자동 재개 없음");
         await RunWithNewDataRecovery(async () =>
         {
-            await ReadAndVerifyCurrentStory();
-            Log("1개 이벤스 완독 완료 · 현재 에피소드 목록에서 중지");
+            var verified = await ReadAndVerifyCurrentStory();
+            Log(verified.HasLocked ? "1개 이벤스 읽을 수 있는 화 처리 완료 · 잠긴 화는 남겨 두고 중지" : "1개 이벤스 완독 완료 · 현재 에피소드 목록에서 중지");
         }, singleEvent: true);
     }
     static int ChooseInstance(IReadOnlyList<Vm> instances, int selected)

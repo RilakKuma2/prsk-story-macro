@@ -135,14 +135,16 @@ internal static partial class Program
         using (var start = await Capture())
             if (IsMainEventList(start) || IsFilterFrame(start)) await ApplyUnreadFilter();
         var progress = LoadQueueProgress();
+        var pass = new CatalogueReadPass();
         using (var initial = await Capture())
         {
             if (!IsMainEventList(initial))
             {
                 progress = progress with { Stage = "reading" };
                 await SaveQueueProgress(progress);
-                await ReadAndVerifyCurrentStory();
-                progress = MarkCurrentStoryComplete(progress);
+                var verification = await ReadAndVerifyCurrentStory();
+                // The open episode list may differ from an old saved card; confirm its catalogue identity below.
+                progress = progress with {Current=null,Stage=verification.HasLocked ? "locked" : "catalogue"};
                 await SaveQueueProgress(progress);
                 await ReturnToStoryCatalogue();
             }
@@ -154,9 +156,9 @@ internal static partial class Program
             await EnsureCatalogueFilter();
             using var screen = await CaptureCatalogue();
             var card = CatalogueSignature(screen);
-            // Continue from the game's current selection, including after a restart.
-            // Saved records skip completed cards but never rewind the catalogue.
-            if (progress.Completed.Any(done => SameCatalogueSignature(done, card)))
+            // Saved completion is historical: newly unlocked/red-badge episodes must be checked again after recovery.
+            // Only a card verified during this invocation may be skipped.
+            if (pass.AlreadyChecked(card))
             {
                 if (!await AdvanceCatalogue())
                 {
@@ -165,12 +167,15 @@ internal static partial class Program
                 }
                 continue;
             }
+            if (progress.Completed.Any(done => SameCatalogueSignature(done,card)))
+                Log("이전 완료 기록이 있어도 현재 미읽음·잠금 상태를 다시 확인합니다.");
             progress = progress with { Current = card, Stage = "reading" };
             await SaveQueueProgress(progress);
             Log($"스토리 목록 확인 · 이전 확인 {progress.Completed.Count}개, SKIP/새 스토리 이어 읽기");
             await OpenSelectedCatalogueStory();
-            await ReadAndVerifyCurrentStory();
-            progress = MarkCurrentStoryComplete(progress);
+            var verified = await ReadAndVerifyCurrentStory();
+            pass.Confirm(card,verified);
+            progress = RecordVerifiedStory(progress,verified);
             await SaveQueueProgress(progress);
             await ReturnToStoryCatalogue();
             progress = progress with { Stage = "catalogue" };

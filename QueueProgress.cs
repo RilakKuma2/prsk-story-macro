@@ -36,6 +36,25 @@ internal static partial class Program
         for (var i = 0; i < left.Length; i++) error += Math.Abs(left[i] - right[i]);
         return (double)error / left.Length < 4;
     }
+    sealed class CatalogueReadPass
+    {
+        readonly List<byte[]> checkedCards = [];
+        public bool AlreadyChecked(byte[] card) => checkedCards.Any(done => SameCatalogueSignature(done,card));
+        public void Confirm(byte[] card, EpisodeVerification verification)
+        {
+            if (!verification.TopChecked || !verification.BottomReached || verification.HasSkip || verification.HasUnread)
+                throw new InvalidOperationException("미읽음 검증이 끝나지 않은 이벤트는 확인 완료로 처리할 수 없습니다.");
+            checkedCards.Add(card);
+        }
+    }
+    static QueueProgress RecordVerifiedStory(QueueProgress progress, EpisodeVerification verification)
+    {
+        if (!verification.TopChecked || !verification.BottomReached || verification.HasSkip || verification.HasUnread)
+            throw new InvalidOperationException("미읽음 검증이 끝나지 않아 다음 이벤트로 넘어가지 않습니다.");
+        if (!verification.HasLocked) return MarkCurrentStoryComplete(progress);
+        if (progress.Current is { } key) progress.Completed.RemoveAll(done => SameCatalogueSignature(done,key));
+        return progress with {Current=null,Stage="locked"};
+    }
     static QueueProgress MarkCurrentStoryComplete(QueueProgress progress)
     {
         if (progress.Current is { } key && !progress.Completed.Any(done => SameCatalogueSignature(done, key))) progress.Completed.Add(key);
