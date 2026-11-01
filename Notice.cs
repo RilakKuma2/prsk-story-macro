@@ -6,6 +6,8 @@ internal static partial class Program
     static HomeAction? FindNoticeAction(Bitmap screen)
     {
         if (screen.Width != 960 || screen.Height != 540 || IsNewDataNotice(screen) || IsStoryVoice(screen) || (ReadingMainStory && IsStoryMvPause(screen))) return null;
+        // Side story voice/unlock dialogs have their own explicit buttons; never close them through the generic X.
+        if (ReadingSideStory && (IsSideVoice(screen) || IsSideUnlockConfirm(screen) || IsSidePerformanceResult(screen) || IsSideRewardResult(screen))) return null;
         if (Matches(screen, new("feedback", "feedback-heading.png", 0, 0, 425, 153, 112, 18)) &&
             Matches(screen, new("decline", "feedback-do-not-send.png", 0, 0, 362, 397, 56, 18)))
             return new("feedback-do-not-send", 390, 406);

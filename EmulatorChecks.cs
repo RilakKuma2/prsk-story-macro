@@ -90,6 +90,7 @@ internal static partial class Program
         VerifyEvidenceStorage(Assert);
         VerifyLiveFrames(Assert).GetAwaiter().GetResult();
         VerifyUpdateInfo(Assert);
+        VerifySideStory(Assert);
         Log($"VM/시작 모드 검사 {checks}개 통과");
     }
 }

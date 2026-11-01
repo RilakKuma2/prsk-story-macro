@@ -8,15 +8,17 @@ using Microsoft.Extensions.Logging;
 
 internal static partial class Program
 {
-    sealed record StartRequest(int Instance, string Command);
+    sealed record StartRequest(int Instance, string Command, int[]? Characters = null, bool UnlockZenpen = false);
     sealed record SelectRequest(int Instance);
     sealed record SettingsRequest(bool AutoResume);
+    sealed record SideSettingsRequest(int Instance, bool UnlockZenpen, bool? AllCharacters = null, int[]? Characters = null);
+    sealed record SideStoryState(int Instance, bool UnlockZenpen, bool AllCharacters, int[] Characters);
     sealed record MemoryRequest(int Gigabytes);
     sealed record CreateVmRequest(string Emulator, string Name);
     sealed record EmulatorRequest(string Emulator);
     sealed record LanguageRequest(string Language);
     sealed record GameInstallRequest(int Instance, bool Update = false);
-    static bool IsPanelCommand(string command) => command is "read-current" or "restart-read" or "read-one" or "virtual-all";
+    static bool IsPanelCommand(string command) => command is "read-current" or "restart-read" or "read-one" or "virtual-all" or "side-story";
     sealed partial class StoryPanel : IDisposable
     {
         public string Token { get; } = Guid.NewGuid().ToString("N");
@@ -32,6 +34,7 @@ internal static partial class Program
         volatile bool manualSelection;
         string EmulatorSetting=>Path.Combine(DataRoot,"local","tab.txt");
         volatile bool busy;
+        volatile SideStoryOptions? sideOptions;
         public bool UpdateBusy => busy;
         public bool TryBeginUpdate() => deviceGate.Wait(0);
         public void EndUpdate() => deviceGate.Release();
@@ -48,6 +51,12 @@ internal static partial class Program
         {
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)!;
             using var reader = new StreamReader(stream); return reader.ReadToEnd();
+        }
+        SideStoryState? SideStateSnapshot()
+        {
+            if (sideOptions is not { } options) return null;
+            var targets = options.Selection;
+            return new(selection, options.UnlockZenpen, targets.AllCharacters, targets.Characters);
         }
         public WebApplication BuildServer(string listen="127.0.0.1",int port=0)
         {
@@ -84,12 +93,14 @@ internal static partial class Program
                 return Results.BadRequest(new { error = T("자동 설치를 지원하지 않는 환경입니다.", "自動更新に対応していない環境です。", "Self-update is not supported in this environment.") });
             });
             app.MapGet("/app-icon.png",()=>Results.Stream(Assembly.GetExecutingAssembly().GetManifestResourceStream("web.app-icon.png")!,"image/png"));
-            app.MapGet("/example/{kind}", (string kind) => kind is "all" or "one" ? Results.File(Path.Combine(Root,"tests","fixtures",kind=="all"?"catalogue-after-completion.png":"top-story-episodes.png"),"image/png") : Results.NotFound());
+            app.MapGet("/example/{kind}", (string kind) => kind is "all" or "one" or "side" ? Results.File(Path.Combine(Root,"tests","fixtures",kind=="all"?"catalogue-after-completion.png":kind=="side"?"story-menu.png":"top-story-episodes.png"),"image/png") : Results.NotFound());
+            app.MapGet("/stamp/{id:int}", IResult (int id) => id is >= 1 and <= 26 && Assembly.GetExecutingAssembly().GetManifestResourceStream($"web.stamps.{id:00}.webp") is { } stamp ? Results.Stream(stamp, "image/webp") : Results.NotFound());
             app.MapGet("/api/state", (HttpContext context) => Results.Json(new
             {
                 listen=ListenState(),listenLocal=!allowLan && context.Connection.RemoteIpAddress is { } address && System.Net.IPAddress.IsLoopback(address),
                 language=Language,emulator=emulatorSelection,appPlayers=OriginalEmulators.Kinds(),
                 busy, version = CurrentVersion.ToString(), selected = selection, autoResume = AutoResumeEnabled, platform = OperatingSystem.IsMacOS() ? "mac" : "windows", emulators = OriginalEmulators.Installed(), memory = MemoryForUi(selection, instances.Any(vm => vm.Index == selection && vm.Running)),
+                sideStory = SideStateSnapshot(),
                 instances = instances.Where(vm=>vm.Kind==emulatorSelection).Select(vm => new
                 {
                     vm.Index, vm.Name, vm.Running, vm.Kind, vm.Label, selected = vm.Index == selection,
@@ -137,16 +148,33 @@ internal static partial class Program
                 Log($"RAM {request.Gigabytes}GB 선택 · 다음 실행에 적용");
                 return Results.Ok();
             });
+            app.MapPost("/api/side-settings", (SideSettingsRequest request) =>
+            {
+                if (!busy || request.Instance != selection || sideOptions is not { } options)
+                    return Results.Conflict(new { error = T("실행 중인 사이드스토리가 없습니다.", "実行中のサイドストーリーがありません。", "No side-story run is active.") });
+                if (request.AllCharacters == false && request.Characters?.Any(id => id is < 1 or > 26) == true)
+                    return Results.BadRequest(new { error = T("캐릭터를 선택하세요", "キャラクターを選択してください", "Select characters") });
+                var unlockChanged = options.UnlockZenpen != request.UnlockZenpen;
+                options.UnlockZenpen = request.UnlockZenpen;
+                if (unlockChanged) Log(request.UnlockZenpen ? "미해금 전편 밀기 켜짐 · 다음 스토리부터 적용" : "미해금 전편 밀기 꺼짐 · 다음 스토리부터 적용");
+                if (request.AllCharacters is { } all && options.SetCharacters(all ? null : request.Characters ?? []))
+                    Log("사이드스토리 대상 변경 · 캐릭터 선택창 복귀 후 적용");
+                return Results.Ok();
+            });
             app.MapPost("/api/start", async (StartRequest request) =>
             {
                 if (!IsPanelCommand(request.Command) || !instances.Any(v => v.Index == request.Instance)) return Results.BadRequest();
+                if (request.Command == "side-story" && !ValidSideCharacters(request.Characters))
+                    return Results.BadRequest(new { error = T("캐릭터를 선택하세요", "キャラクターを選択してください", "Select characters") });
                 if (busy || !await deviceGate.WaitAsync(2000)) return Results.Conflict();
                 busy = true; selection = request.Instance;
                 emulatorSelection=instances.Single(v=>v.Index==selection).Kind;
                 Stop.Dispose(); Stop = new();
                 states[selection] = "실행 중"; errors.TryRemove(selection, out _);
                 commands[selection] = request.Command;
-                worker = Task.Run(() => Execute(request));
+                var options = request.Command == "side-story" ? new SideStoryOptions(request.UnlockZenpen, request.Characters) : null;
+                sideOptions = options;
+                worker = Task.Run(() => Execute(request, options));
                 return Results.Accepted();
             });
             app.MapPost("/api/stop", () => { RequestStop(); return Results.Ok(); });
@@ -205,12 +233,18 @@ internal static partial class Program
             });
             return app;
         }
-        async Task Execute(StartRequest request)
+        async Task Execute(StartRequest request, SideStoryOptions? options)
         {
             try
             {
                 using var session = await BeginSession(request.Instance);
-                if (request.Command == "read-one")
+                if (request.Command == "side-story")
+                {
+                    await PrepareMemoryForRun();
+                    await EnsureRunning();
+                    await ReadSideStories(options!);
+                }
+                else if (request.Command == "read-one")
                 {
                     // Keep the selected event open; apply RAM changes on the next full/reboot start.
                     await ReadSingleEvent();
@@ -239,7 +273,7 @@ internal static partial class Program
             finally
             {
                 try { if (Selected != null && ReaderTouch != null) await SetReaderLease(false); } catch { }
-                busy = false; deviceGate.Release();
+                sideOptions = null; busy = false; deviceGate.Release();
             }
         }
         public void StartMonitor() => monitor = Task.Run(async () =>

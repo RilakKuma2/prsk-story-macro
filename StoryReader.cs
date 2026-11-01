@@ -166,7 +166,9 @@ internal static partial class Program
         Matches(screen, new("received-ok", "items-received-ok.png", 0, 0, 420, 478, 120, 28));
     static HomeAction? FindReaderAction(Bitmap screen)
     {
+        if (ReadingSideStory && FindSideResultAction(screen) is { } result) return result;
         if (IsStoryRewardsBanner(screen)) return new("story-rewards-banner-close", 480, 315);
+        if (ReadingSideStory && IsSideVoice(screen)) return new("side-no-voice", 494, 491);
         if (IsStoryVoice(screen)) return StoryContinuousOptionVisible(screen) && !StoryContinuousChecked(screen)
             ? new("story-continuous-on", 372, 355) : new("story-no-voice", 480, 406);
         if (ReadingMainStory && IsStoryMvPause(screen)) return new("story-mv-skip", 390, 318);
@@ -180,6 +182,7 @@ internal static partial class Program
     // A separate screen watcher renews a one-second device-side lease; losing the host or reader expires input automatically.
     record StoryTouch(string Device, int MaxX, int MaxY, bool Pressure, bool Files, bool Tracking = true, bool Wide = true);
     static StoryTouch? ReaderTouch;
+    static bool ReaderTouchSide;
     static string? AuthorizedAuxiliary;
     static string ReaderRemote(string name) => $"/data/local/tmp/sekai-storyskip-{Selected!.Index}-{name}";
     static byte[] EventData(bool wide, params (short type, short code, int value)[] events)
@@ -211,6 +214,7 @@ internal static partial class Program
         if (IsNewDataNotice(screen)) return "new-data-notice";
         if (FindStoryMenuClose(screen) != null) return "story-menu-open";
         if (IsStoryMvPause(screen)) return "mv-pause-dialog";
+        if (ReadingSideStory && (IsSideStoryList(screen) || IsSidePerformanceResult(screen) || IsSideRewardResult(screen) || IsSideVoice(screen) || IsSideUnlockConfirm(screen))) return "side-list-or-dialog";
         if (!IsStoryReader(screen)) return "ellipsis-not-recognized";
         if (FindNoticeAction(screen) != null) return "notice-open";
         if (IsStoryVoice(screen)) return "voice-dialog";
@@ -250,7 +254,8 @@ internal static partial class Program
         var abi = (await Shell("getprop ro.product.cpu.abi")).Trim();
         ReaderTouch = SelectStoryTouch(Selected!.Kind, OperatingSystem.IsMacOS(), abi, await Shell("getevent -lp"));
         var touch = ReaderTouch;
-        var (down, up) = StoryTouchPackets(touch);
+        var side = ReaderTouchSide = ReadingSideStory;
+        var (down, up) = StoryTouchPackets(touch, side);
         foreach (var (name, data) in new[] { ("down.bin", down), ("up.bin", up) })
         {
             if (!touch.Files) continue;
@@ -267,6 +272,10 @@ internal static partial class Program
         script = script.Replace("while [ $i -lt 240 ]; do", "while :; do");
         // Original LDPlayer printf / other VM cat split and measured resting intervals.
         script = script.Replace("sleep 0.055", touch.Files ? "sleep 0.075" : "sleep 0.100");
+        // Side stories: a rotated (portrait-axis) device has no verified landscape mapping for an off-center
+        // point, so it taps the safe gap between card columns through Android's own coordinate system.
+        if (side && touch.MaxX < touch.MaxY)
+            script = script.Replace($"cat {ReaderRemote("down.bin")} >&3\nsleep 0.025\n", $"input tap {SideTapX} {SideTapY}\n");
         if (!touch.Files)
         {
             static string Print(byte[] data) => "printf '" + string.Concat(data.Select(b => "\\" + Convert.ToString(b, 8).PadLeft(3, '0'))) + "'";
@@ -305,18 +314,21 @@ internal static partial class Program
         }
         throw new InvalidOperationException("원본 방식으로 터치 장치를 찾지 못해 연타를 시작하지 않았습니다.");
     }
-    static (byte[] Down, byte[] Up) StoryTouchPackets(StoryTouch touch)
+    static (byte[] Down, byte[] Up) StoryTouchPackets(StoryTouch touch, bool side = false)
     {
+        // Side story lists put buttons under the screen center; taps go to the gap between the two card columns.
+        var x = side && touch.MaxX >= touch.MaxY ? (touch.MaxX + 1) * SideTapX / 960 : (touch.MaxX + 1) / 2;
+        var y = side && touch.MaxX >= touch.MaxY ? (touch.MaxY + 1) * SideTapY / 540 : (touch.MaxY + 1) / 2;
         List<(short, short, int)> down, up;
         if (touch.Tracking)
         {
-            down = [(3,47,0),(3,57,1),(3,53,(touch.MaxX+1)/2),(3,54,(touch.MaxY+1)/2)];
+            down = [(3,47,0),(3,57,1),(3,53,x),(3,54,y)];
             up = [(3,47,0),(3,57,-1)];
             if (touch.Pressure) { down.Add((3,58,1)); up.Add((3,58,0)); }
         }
         else
         {
-            down = [(3,53,(touch.MaxX+1)/2),(3,54,(touch.MaxY+1)/2)];
+            down = [(3,53,x),(3,54,y)];
             if (touch.Pressure) down.Add((3,58,1));
             down.Add((0,2,0)); up = [(0,2,0)];
         }
@@ -329,7 +341,7 @@ internal static partial class Program
         await EnsureGameForeground();
         using var verify = await Capture();
         if (!CanTapStory(verify)) return;
-        if (ReaderTouch == null) await PrepareReaderTouch();
+        if (ReaderTouch == null || ReaderTouchSide != ReadingSideStory) await PrepareReaderTouch();
         using (var fresh = await Capture()) if (!CanTapStory(fresh)) return;
         await SetReaderLease(true);
         var tapping = Auxiliary(["-s", Serial, "shell", "sh " + ReaderRemote("taps.sh")]);
@@ -387,6 +399,11 @@ internal static partial class Program
                 if (DateTime.UtcNow - lastAction > TimeSpan.FromSeconds(2) && await GuardedTap(action, FindReaderAction)) lastAction = DateTime.UtcNow;
             }
             else if (CanTapStory(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0; await ContinuousStoryTaps(); }
+            else if (ReadingSideStory && IsSideStoryList(screen))
+            {
+                transitionSince = null; mvProbeCount = 0;
+                if (++listFrames >= 3) { Log("사이드스토리 목록 복귀 · 남은 SKIP/미읽음 검사"); return; }
+            }
             else if (IsEpisodeList(screen))
             {
                 transitionSince = null; mvProbeCount = 0;

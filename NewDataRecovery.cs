@@ -81,7 +81,7 @@ internal static partial class Program
     }
 
     // Called only by an active macro, never by passive preview/percentage monitoring.
-    static async Task RunWithNewDataRecovery(Func<Task> work, Func<Task>? continueAfterRecovery = null, bool singleEvent = false, bool virtualLive = false)
+    static async Task RunWithNewDataRecovery(Func<Task> work, Func<Task>? continueAfterRecovery = null, bool singleEvent = false, bool virtualLive = false, Func<Action, Task>? enter = null)
     {
         var safetyResume=false;
         Interlocked.Exchange(ref PendingProtectionReason,null);
@@ -105,6 +105,13 @@ internal static partial class Program
                 if (!AutoResumeEnabled && !safetyResume) throw new OperationCanceledException("자동 재개가 해제되어 재진입을 멈췄습니다.");
                 await EnsureRunning();
                 await ReturnHome();
+                if (enter != null)
+                {
+                    // Side stories re-enter through their own story menu card and skip finished characters.
+                    Log("자동 재개 · 메인화면 복귀 후 사이드스토리 재진입");
+                    await enter(resetUnknownFailures);
+                    return;
+                }
                 await EnterMainEventStories();
                 if (!singleEvent) await ApplyUnreadFilter(virtualLive);
                 resetUnknownFailures();

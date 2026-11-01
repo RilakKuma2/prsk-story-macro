@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>SekaiStorySkip.ico</ApplicationIcon>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ReleasePackage" Value="$(ReleasePackage)" />
@@ -20,6 +20,7 @@
     <EmbeddedResource Include="web\base.css" LogicalName="web.base.css" />
     <EmbeddedResource Include="web\i18n.js" LogicalName="web.i18n.js" />
     <EmbeddedResource Include="assets\app-icon.png" LogicalName="web.app-icon.png" />
+    <EmbeddedResource Include="assets\stamps\*.webp" LogicalName="web.stamps.%(Filename).webp" />
     <Content Include="third-party\SkiaSharp\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="templates\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="tests\fixtures\*.png" CopyToOutputDirectory="PreserveNewest" />
