@@ -16,9 +16,8 @@ internal static partial class Program
             if (IsEpisodeList(screen)) return screen;
             using (screen)
             {
-                var action = FindReaderAction(screen);
-                if (action is { Name: "story-rewards-banner-close" or "story-receipt-ok" or "story-reward-ok" or "story-received-ok" } &&
-                    DateTime.UtcNow - lastTap > TimeSpan.FromSeconds(2) && await GuardedTap(action, FindReaderAction))
+                var action = FindStoryRewardAction(screen);
+                if (action != null && DateTime.UtcNow - lastTap > TimeSpan.FromSeconds(2) && await GuardedTap(action, FindStoryRewardAction))
                     lastTap = DateTime.UtcNow;
             }
             await Task.Delay(500, Stop.Token);

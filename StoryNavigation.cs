@@ -4,9 +4,11 @@ internal static partial class Program
 {
     static bool IsMainEventList(Bitmap screen) => screen.Width == 960 && screen.Height == 540 &&
         HasCatalogueOpenButton(screen) &&
-        (MatchesStoryFilterButton(screen, "story-filter.png") || MatchesStoryFilterButton(screen, "story-filter-active.png"));
+        (MatchesStoryFilterButton(screen, "story-filter.png") || MatchesStoryFilterButton(screen, "story-filter-active.png")) &&
+        !IsStoryRewardsBanner(screen);
     static bool IsEmptyVirtualCatalogue(Bitmap screen) => screen.Width == 960 && screen.Height == 540 &&
-        !HasCatalogueOpenButton(screen) && (MatchesStoryFilterButton(screen,"story-filter.png") || MatchesStoryFilterButton(screen,"story-filter-active.png"));
+        !HasCatalogueOpenButton(screen) && (MatchesStoryFilterButton(screen,"story-filter.png") || MatchesStoryFilterButton(screen,"story-filter-active.png")) &&
+        !IsStoryRewardsBanner(screen);
 
     static bool HasCatalogueOpenButton(Bitmap screen)
     {

@@ -3,8 +3,8 @@ using System.Text.Json;
 
 internal static partial class Program
 {
-    sealed record UserSettings(bool AutoResume = false, int MemoryGb = 0);
-    static volatile bool AutoResumeEnabled;
+    sealed record UserSettings(bool AutoResume = true, int MemoryGb = 0);
+    static volatile bool AutoResumeEnabled = true;
     static volatile int RequestedMemoryGb;
     static volatile bool WorkflowActive;
     static bool RestartAuthorized;
@@ -44,11 +44,14 @@ internal static partial class Program
     {
         try
         {
-            var settings = LoadRecord<UserSettings>(SettingsPath);
-            AutoResumeEnabled = settings?.AutoResume == true;
-            RequestedMemoryGb = settings?.MemoryGb is >= 3 and <= 12 ? settings.MemoryGb : 0;
+            ApplyUserSettings(LoadRecord<UserSettings>(SettingsPath));
         }
-        catch { AutoResumeEnabled = false; RequestedMemoryGb = 0; }
+        catch { ApplyUserSettings(null); }
+    }
+    static void ApplyUserSettings(UserSettings? settings)
+    {
+        AutoResumeEnabled = settings?.AutoResume ?? true;
+        RequestedMemoryGb = settings?.MemoryGb is >= 3 and <= 12 ? settings.MemoryGb : 0;
     }
     static async Task SaveAutoResume(bool enabled)
     {
@@ -118,7 +121,7 @@ internal static partial class Program
                 Log("스토리 목록·필터 복원 성공 · 상태 인식 실패 카운트 초기화");
                 Log("자동 재개 완료 · 메인 / 이벤트 스토리 진입 및 미읽음/스킵 필터 복원.");
                 if (continueAfterRecovery != null) await continueAfterRecovery();
-            }, () => AutoResumeEnabled, singleEvent);
+            }, () => AutoResumeEnabled, singleEvent, TryDismissStalledStoryRewards, continueAfterRecovery);
         }
         finally { WorkflowActive = false; RestartAuthorized = false; LockedStoriesInRun.Clear(); Interlocked.Exchange(ref PendingProtectionReason,null); }
     }
@@ -126,7 +129,8 @@ internal static partial class Program
     // Only unknown-state failures count. Crashes/new data can recover repeatedly; restoring
     // the story catalogue and filters clears the counter before continuing the current work.
     static async Task RunRecoveryAttempts(Func<Task> work, Func<RecoveryNeeded, Task> revoke,
-        Func<RecoveryNeeded, Task<bool>> restart, Func<Action, Task> resume, Func<bool> enabled, bool singleEvent = false)
+        Func<RecoveryNeeded, Task<bool>> restart, Func<Action, Task> resume, Func<bool> enabled, bool singleEvent = false,
+        Func<RecoveryNeeded, Task<bool>>? beforeRecovery = null, Func<Task>? continueInPlace = null)
     {
         var unknownFailures = 0;
         var next = work;
@@ -135,15 +139,30 @@ internal static partial class Program
             try { await next(); return; }
             catch (RecoveryNeeded interruption)
             {
-                await revoke(interruption);
+                var failure = interruption;
+                if (failure.Cause == RecoveryCause.UnknownState && beforeRecovery != null)
+                {
+                    try
+                    {
+                        if (await beforeRecovery(failure))
+                        {
+                            next = continueInPlace ?? next;
+                            continue;
+                        }
+                    }
+                    catch (RecoveryNeeded rechecked) { failure = rechecked; }
+                    catch (Exception recheckError) when (recheckError is IOException or TimeoutException)
+                    { Log("보상 수령창 재검사 실패 · 기존 복구 절차 진행: " + recheckError.Message); }
+                }
+                await revoke(failure);
                 if (singleEvent)
-                    throw new OperationCanceledException(interruption.Message + " · 1개 이벤스만 실행에서는 자동 재개하지 않습니다.", interruption);
-                if (interruption.Cause == RecoveryCause.UnknownState) unknownFailures++;
+                    throw new OperationCanceledException(failure.Message + " · 1개 이벤스만 실행에서는 자동 재개하지 않습니다.", failure);
+                if (failure.Cause == RecoveryCause.UnknownState) unknownFailures++;
                 if (unknownFailures >= 2)
-                    throw new InvalidOperationException("스토리 목록 재진입에 성공하지 못한 채 상태 인식 실패가 2회 발생했습니다. 오류로 중지합니다. " + interruption.Message, interruption);
-                if (interruption.Cause!=RecoveryCause.AccountSafety && !CanAutoRecover(enabled(), unknownFailures))
-                    throw new OperationCanceledException(interruption.Message + " · 자동 재개가 꺼져 있어 중지했습니다.");
-                if (!await restart(interruption)) throw new OperationCanceledException("자동 재개 해제됨");
+                    throw new InvalidOperationException("스토리 목록 재진입에 성공하지 못한 채 상태 인식 실패가 2회 발생했습니다. 오류로 중지합니다. " + failure.Message, failure);
+                if (failure.Cause!=RecoveryCause.AccountSafety && !CanAutoRecover(enabled(), unknownFailures))
+                    throw new OperationCanceledException(failure.Message + " · 자동 재개가 꺼져 있어 중지했습니다.");
+                if (!await restart(failure)) throw new OperationCanceledException("자동 재개 해제됨");
                 next = () => resume(() => unknownFailures = 0);
             }
         }

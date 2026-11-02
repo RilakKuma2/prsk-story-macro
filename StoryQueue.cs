@@ -31,16 +31,36 @@ internal static partial class Program
     static async Task<Bitmap> CaptureCatalogue(bool allowEmpty = false)
     {
         var until = DateTime.UtcNow.AddSeconds(30);
+        var lastRewardTap = DateTime.MinValue;
         while (DateTime.UtcNow < until)
         {
             await EnsureGameForeground();
             var screen = await Capture();
             if (await DismissNotice(screen)) { screen.Dispose(); continue; }
+            if (FindStoryRewardAction(screen) is { } reward)
+            {
+                using (screen)
+                    if (DateTime.UtcNow - lastRewardTap > TimeSpan.FromSeconds(2) && await GuardedTap(reward, FindStoryRewardAction))
+                        lastRewardTap = DateTime.UtcNow;
+                await Task.Delay(500, Stop.Token);
+                continue;
+            }
             if (IsCatalogueSelection(screen) || allowEmpty && IsEmptyVirtualCatalogue(screen)) return screen;
             screen.Dispose();
             await Task.Delay(500, Stop.Token);
         }
         throw new RecoveryNeeded(RecoveryCause.UnknownState, "스토리 선택 목록을 확인하지 못했습니다.");
+    }
+    static async Task<bool> GuardedCatalogueTap(HomeAction action, Func<Bitmap, HomeAction?> recognize, bool allowEmpty = false)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            if (await GuardedTap(action, recognize)) return true;
+            using var changed = await Capture();
+            if (FindStoryRewardAction(changed) == null) return false;
+            using var uncovered = await CaptureCatalogue(allowEmpty);
+        }
+        return false;
     }
     static async Task EnsureCatalogueFilter(bool virtualOnly = false)
     {
@@ -49,16 +69,19 @@ internal static partial class Program
     }
     static async Task ReturnToStoryCatalogue(bool virtualOnly = false)
     {
-        var until=DateTime.UtcNow.AddSeconds(35); var lastTap=DateTime.MinValue;
+        var until=DateTime.UtcNow.AddSeconds(35); var lastTap=DateTime.MinValue; var lastRewardTap=DateTime.MinValue;
         while(DateTime.UtcNow<until)
         {
             using var screen=await Capture();
-            if(IsMainEventList(screen) || virtualOnly && IsEmptyVirtualCatalogue(screen))
+            if(FindStoryRewardAction(screen) is { } reward)
+            {
+                if(DateTime.UtcNow-lastRewardTap>TimeSpan.FromSeconds(2) && await GuardedTap(reward,FindStoryRewardAction))
+                    lastRewardTap=DateTime.UtcNow;
+            }
+            else if(IsMainEventList(screen) || virtualOnly && IsEmptyVirtualCatalogue(screen))
             { Log("스토리 선택 목록 복귀"); return; }
             // A reward overlay can consume the first BACK tap; retry only while the episode list is still visible.
-            if(HasRewardsObtainedText(screen)) await GuardedTap(new("reward-banner-close",480,315),s=>HasRewardsObtainedText(s)?new("reward-banner-close",480,315):null);
             else if(await DismissNotice(screen)) { }
-            else if(FindReaderAction(screen) is { } reward) await GuardedTap(reward,FindReaderAction);
             else if(DateTime.UtcNow-lastTap>TimeSpan.FromSeconds(1) && FindEpisodeBack(screen) is { } back)
             { if(await GuardedTap(back,FindEpisodeBack)) lastTap=DateTime.UtcNow; }
             await Task.Delay(500,Stop.Token);
@@ -79,7 +102,7 @@ internal static partial class Program
         }
         HomeAction? Next(Bitmap s) => IsStoryFilterActive(s) && HasNextCatalogueCard(s) && SameCatalogueCard(s, card)
             ? new("catalogue-next-story", 180, 378) : null;
-        if (!await GuardedTap(Next(before)!, Next)) throw new InvalidOperationException("다음 스토리를 선택하기 직전 화면이 바뀌었습니다.");
+        if (!await GuardedCatalogueTap(Next(before)!, Next, virtualOnly)) throw new InvalidOperationException("다음 스토리를 선택하기 직전 화면이 바뀌었습니다.");
         for (var wait = 0; wait < 20; wait++)
         {
             await Task.Delay(500, Stop.Token);
@@ -94,17 +117,27 @@ internal static partial class Program
         using var screen = await CaptureCatalogue();
         HomeAction? FindOpen(Bitmap s) => singleEvent && IsCatalogueSelection(s) ? new("single-event-open-selected",848,500) : FindCatalogueOpen(s);
         var open = FindOpen(screen) ?? throw new InvalidOperationException("필터 색과 스토리 결정 버튼을 확인하지 못했습니다.");
-        if (!await GuardedTap(open, FindOpen)) throw new InvalidOperationException("스토리 진입 직전 화면이 바뀌었습니다.");
+        if (!await GuardedCatalogueTap(open, FindOpen, virtualOnly)) throw new InvalidOperationException("스토리 진입 직전 화면이 바뀌었습니다.");
         // Same entry wait pattern as the invitation macro: wait for the episode list,
         // handle an explicit download if present, and never scroll the loading screen.
         var until = DateTime.UtcNow.AddMinutes(20);
         var lastKnown = DateTime.UtcNow;
         var downloaded = false;
         var listFrames = 0;
+        var openAttempts = 1;
+        var lastOpen = DateTime.UtcNow;
         while (DateTime.UtcNow < until)
         {
             using var current = await Capture();
             if (await DismissNotice(current)) { lastKnown = DateTime.UtcNow; continue; }
+            if (FindStoryRewardAction(current) is { } reward)
+            {
+                if (DateTime.UtcNow - lastOpen > TimeSpan.FromSeconds(2) && await GuardedTap(reward, FindStoryRewardAction))
+                    lastOpen = DateTime.UtcNow;
+                lastKnown = DateTime.UtcNow; listFrames = 0;
+                await Task.Delay(500, Stop.Token);
+                continue;
+            }
             if (IsEpisodeList(current))
             {
                 if (++listFrames >= 2) return;
@@ -112,7 +145,14 @@ internal static partial class Program
             else
             {
                 listFrames = 0;
-                if (IsStoryLoading(current)) lastKnown = DateTime.UtcNow;
+                // A bonus can appear between the final capture and the open tap, consuming it.
+                // Retry only the same guarded catalogue button, with a bounded attempt count.
+                if (!downloaded && openAttempts < 3 && DateTime.UtcNow - lastOpen > TimeSpan.FromSeconds(2) && FindOpen(current) is { } retryOpen)
+                {
+                    openAttempts++;
+                    if (await GuardedCatalogueTap(retryOpen, FindOpen, virtualOnly)) lastKnown = lastOpen = DateTime.UtcNow;
+                }
+                else if (IsStoryLoading(current)) lastKnown = DateTime.UtcNow;
                 else if (IsStoryDownload(current) && !downloaded)
                 {
                     downloaded = await GuardedTap(new("story-download", 571, 405), FindStoryAction);

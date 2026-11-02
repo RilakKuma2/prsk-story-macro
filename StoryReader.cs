@@ -98,7 +98,9 @@ internal static partial class Program
             var p = screen.GetPixel(x, y);
             if (p.G > 185 && p.B > 180 && p.G - p.R > 25 && p.B - p.R > 25) cyanTile++;
         }
-        return cyanTile >= 100 && HasEpisodeListAnchor(screen);
+        // Ticket rewards and the separate all-episodes crystal bonus use the same banner.
+        // The second banner may arrive after navigation, so the page behind it is not an anchor.
+        return cyanTile >= 100;
     }
     static bool HasRewardsObtainedText(Bitmap screen)
     {
@@ -164,17 +166,22 @@ internal static partial class Program
         Matches(screen, StoryTicket with { Left = 229, Top = 190 }) && Matches(screen, new("receipt", "story-receipt-ok.png", 0, 0, 463, 481, 34, 20));
     static bool IsReceivedItems(Bitmap screen) => Matches(screen, new("received", "items-received-title.png", 0, 0, 340, 42, 280, 26)) &&
         Matches(screen, new("received-ok", "items-received-ok.png", 0, 0, 420, 478, 120, 28));
+    static HomeAction? FindStoryRewardAction(Bitmap screen)
+    {
+        if (IsStoryRewardsBanner(screen)) return new("story-rewards-banner-close", 480, 315);
+        if (IsStoryReceipt(screen)) return new("story-receipt-ok", 480, 492);
+        if (IsStoryReward(screen)) return new("story-reward-ok", 480, 420);
+        if (IsReceivedItems(screen)) return new("story-received-ok", 480, 491);
+        return null;
+    }
     static HomeAction? FindReaderAction(Bitmap screen)
     {
         if (ReadingSideStory && FindSideResultAction(screen) is { } result) return result;
-        if (IsStoryRewardsBanner(screen)) return new("story-rewards-banner-close", 480, 315);
+        if (FindStoryRewardAction(screen) is { } reward) return reward;
         if (ReadingSideStory && IsSideVoice(screen)) return new("side-no-voice", 494, 491);
         if (IsStoryVoice(screen)) return StoryContinuousOptionVisible(screen) && !StoryContinuousChecked(screen)
             ? new("story-continuous-on", 372, 355) : new("story-no-voice", 480, 406);
         if (ReadingMainStory && IsStoryMvPause(screen)) return new("story-mv-skip", 390, 318);
-        if (IsStoryReceipt(screen)) return new("story-receipt-ok", 480, 492);
-        if (IsStoryReward(screen)) return new("story-reward-ok", 480, 420);
-        if (IsReceivedItems(screen)) return new("story-received-ok", 480, 491);
         return null;
     }
 
@@ -215,6 +222,7 @@ internal static partial class Program
         if (FindStoryMenuClose(screen) != null) return "story-menu-open";
         if (IsStoryMvPause(screen)) return "mv-pause-dialog";
         if (ReadingSideStory && (IsSideStoryList(screen) || IsSidePerformanceResult(screen) || IsSideRewardResult(screen) || IsSideVoice(screen) || IsSideUnlockConfirm(screen))) return "side-list-or-dialog";
+        if (FindStoryRewardAction(screen) != null) return "story-reward";
         if (!IsStoryReader(screen)) return "ellipsis-not-recognized";
         if (FindNoticeAction(screen) != null) return "notice-open";
         if (IsStoryVoice(screen)) return "voice-dialog";
@@ -368,6 +376,7 @@ internal static partial class Program
         Log("기존 매크로 방식으로 연속 읽기 시작 · 스킵/빨리감기 메뉴를 사용하지 않습니다.");
         var lastKnown = DateTime.UtcNow; var lastAction = DateTime.MinValue;
         var listFrames = 0;
+        var listReturn = new StoryListReturnGate();
         DateTime? transitionSince = null;
         var mvProbeCount = 0;
         DateTime? menuOpenedAt = null;
@@ -376,6 +385,7 @@ internal static partial class Program
             await Guard();
             await EnsureGameForeground();
             using var screen = await Capture();
+            var listReady = listReturn.Observe(IsEpisodeList(screen), DateTime.UtcNow);
             if (await DismissNotice(screen)) { lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0; menuOpenedAt = null; continue; }
             var menuWasOpen = menuOpenedAt != null;
             var menuClose = DelayedStoryMenuClose(screen,DateTime.UtcNow,ref menuOpenedAt);
@@ -407,7 +417,7 @@ internal static partial class Program
             else if (IsEpisodeList(screen))
             {
                 transitionSince = null; mvProbeCount = 0;
-                if (++listFrames >= 3) { Log("에피소드 목록 복귀 · 현재 위치부터 아래로 새 스토리/SKIP 검사"); return; }
+                if (listReady) { Log("에피소드 목록 안정 확인 · 후속 보상 없음 · 현재 위치부터 아래로 새 스토리/SKIP 검사"); return; }
             }
             else
             {

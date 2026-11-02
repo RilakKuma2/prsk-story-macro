@@ -86,6 +86,7 @@ internal static partial class Program
         VerifySingleEventRecovery(Assert).GetAwaiter().GetResult();
         VerifyFilterRecovery(Assert).GetAwaiter().GetResult();
         VerifyStoryMenuClose(Assert);
+        VerifyStoryRewardFlow(Assert);
         VerifyInstallAndReleaseChanges(Assert);
         VerifyEvidenceStorage(Assert);
         VerifyLiveFrames(Assert).GetAwaiter().GetResult();
