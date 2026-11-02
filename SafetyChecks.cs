@@ -145,7 +145,7 @@ internal static partial class Program
         Assert(!CanTapStory(rewardBanner), "reward banner never permits dialogue tapping");
         using var missingRewardText = new Bitmap(rewardBanner);
         using (var graphics = Graphics.FromImage(missingRewardText)) graphics.FillRectangle(Brushes.Black, 399, 307, 154, 18);
-        Assert(!IsStoryRewardsBanner(missingRewardText), "reward message is required");
+        Assert(IsStoryRewardsBanner(missingRewardText), "opaque ticket artwork does not require the translucent reward message");
         using var missingRewardTiles = new Bitmap(rewardBanner);
         using (var graphics = Graphics.FromImage(missingRewardTiles)) graphics.FillRectangle(Brushes.Black, 200, 217, 560, 76);
         Assert(!IsStoryRewardsBanner(missingRewardTiles), "reward tile is required");

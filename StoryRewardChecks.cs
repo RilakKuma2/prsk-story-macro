@@ -12,7 +12,7 @@ internal static partial class Program
         using var catalogue = Load("catalogue-top-filtered");
         using var reader = Load("story-reader-fade");
         var close = new HomeAction("story-rewards-banner-close", 480, 315);
-        foreach (var reward in new[] { tickets, crystals })
+        foreach (var (reward, require50) in new[] { (tickets, false), (crystals, true) })
         {
             assert(FindStoryRewardAction(reward) == close && FindReaderAction(reward) == close,
                 "both actual sequential ticket and 50-crystal banners have an explicit close action");
@@ -33,10 +33,11 @@ internal static partial class Program
             using var changedQuantities = new Bitmap(reward);
             using (var graphics = Graphics.FromImage(changedQuantities))
                 graphics.FillRectangle(Brushes.Black, 390, 274, 180, 19);
-            assert(FindStoryRewardAction(changedQuantities) == close, "reward quantities do not affect dismissal");
+            assert(FindStoryRewardAction(changedQuantities) == (require50 ? null : close),
+                $"crystal recognition requires x50 while ticket quantities may change (crystal={require50})");
             using var missingText = new Bitmap(reward);
             using (var graphics = Graphics.FromImage(missingText)) graphics.FillRectangle(Brushes.Black, 399, 307, 154, 18);
-            assert(!IsStoryRewardsBanner(missingText), "a cyan item alone cannot authorize reward dismissal");
+            assert(IsStoryRewardsBanner(missingText), "opaque ticket or crystal-x50 artwork identifies rewards without translucent text");
             using var missingTiles = new Bitmap(reward);
             using (var graphics = Graphics.FromImage(missingTiles)) graphics.FillRectangle(Brushes.Black, 200, 217, 560, 76);
             assert(!IsStoryRewardsBanner(missingTiles), "the reward message alone cannot authorize banner dismissal");
@@ -46,6 +47,7 @@ internal static partial class Program
             using var unrelated = Load(name);
             assert(FindStoryRewardAction(unrelated) == null, "unrelated screens cannot trigger reward taps: " + name);
         }
+        VerifyRewardItemLocations(assert);
 
         var gate = new StoryListReturnGate();
         var start = DateTime.UtcNow;
@@ -77,6 +79,50 @@ internal static partial class Program
             assert(AutoResumeEnabled, "new settings use the enabled default");
         }
         finally { AutoResumeEnabled = savedAuto; RequestedMemoryGb = savedMemory; }
+    }
+
+    static void VerifyRewardItemLocations(Action<bool, string> assert)
+    {
+        using var ticket = new Bitmap(Path.Combine(Root, "templates", "story-reward-banner-ticket.png"));
+        using var crystal = new Bitmap(Path.Combine(Root, "templates", "story-reward-crystal-50.png"));
+        using var crystal25 = new Bitmap(Path.Combine(Root, "tests", "fixtures", "side-reward-result.png"));
+        using var threeTickets = new Bitmap(Path.Combine(Root, "tests", "fixtures", "story-rewards-banner.png"));
+        assert(IsStoryRewardsBanner(threeTickets), "the captured three-ticket layout is recognized as well as the two-ticket layout");
+        foreach (var n in new[] { 1, 2, 3, 5, 8 })
+        {
+            using var layout = new Bitmap(960, 540);
+            using (var graphics = Graphics.FromImage(layout))
+                for (var i = 0; i < n; i++)
+                    graphics.DrawImage(ticket, new Rectangle(449 - 44 * (n - 1) + 88 * i, 232, ticket.Width, ticket.Height),
+                        new Rectangle(0, 0, ticket.Width, ticket.Height), GraphicsUnit.Pixel);
+            assert(IsStoryRewardsBanner(layout), $"{n} centered ticket items are detected independently of the reward text");
+        }
+        foreach (var (left, top) in new[] { (43, 228), (98, 231), (317, 233), (449, 232), (665, 236), (852, 228) })
+        {
+            using var moved = new Bitmap(960, 540);
+            using (var graphics = Graphics.FromImage(moved))
+                graphics.DrawImage(ticket, new Rectangle(left, top, ticket.Width, ticket.Height),
+                    new Rectangle(0, 0, ticket.Width, ticket.Height), GraphicsUnit.Pixel);
+            assert(IsStoryRewardsBanner(moved), "ticket matching searches the reward row, including odd pixel positions and both edges");
+        }
+        foreach (var (left, top) in new[] { (454, 225), (452, 223), (458, 229) })
+        {
+            using var moved = new Bitmap(960, 540);
+            using (var graphics = Graphics.FromImage(moved))
+                graphics.DrawImage(crystal, new Rectangle(left, top, crystal.Width, crystal.Height),
+                    new Rectangle(0, 0, crystal.Width, crystal.Height), GraphicsUnit.Pixel);
+            assert(IsStoryRewardsBanner(moved), "crystal plus x50 tolerates small position shifts");
+        }
+        assert(!IsStoryRewardsBanner(crystal25), "a crystal with x25 is not a 50-crystal completion reward");
+        using var onlyQuantity = new Bitmap(960, 540);
+        using (var graphics = Graphics.FromImage(onlyQuantity))
+            graphics.DrawImage(crystal, new Rectangle(477, 276, 37, 16), new Rectangle(23, 51, 37, 16), GraphicsUnit.Pixel);
+        assert(!IsStoryRewardsBanner(onlyQuantity), "x50 alone is insufficient without the crystal artwork");
+        using var outsideRow = new Bitmap(960, 540);
+        using (var graphics = Graphics.FromImage(outsideRow))
+            graphics.DrawImage(ticket, new Rectangle(449, 100, ticket.Width, ticket.Height),
+                new Rectangle(0, 0, ticket.Width, ticket.Height), GraphicsUnit.Pixel);
+        assert(!IsStoryRewardsBanner(outsideRow), "a ticket elsewhere on the screen cannot dismiss as a reward banner");
     }
 
     static async Task VerifyStalledRewardRecovery(Action<bool, string> assert)

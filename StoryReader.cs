@@ -91,16 +91,36 @@ internal static partial class Program
     }
     static bool IsStoryRewardsBanner(Bitmap screen)
     {
-        if (!HasRewardsObtainedText(screen)) return false;
-        var cyanTile = 0;
-        for (var y = 217; y < 293; y += 2) for (var x = 200; x < 760; x += 2)
-        {
-            var p = screen.GetPixel(x, y);
-            if (p.G > 185 && p.B > 180 && p.G - p.R > 25 && p.B - p.R > 25) cyanTile++;
-        }
-        // Ticket rewards and the separate all-episodes crystal bonus use the same banner.
-        // The second banner may arrive after navigation, so the page behind it is not an anchor.
-        return cyanTile >= 100;
+        if (screen.Width != 960 || screen.Height != 540) return false;
+        // The item artwork is opaque. Never require the translucent banner text or page behind it.
+        // Crystal recognition includes x50; tickets move horizontally as the number of items changes.
+        return HasStoryRewardItem(screen, "story-reward-crystal-50.png", new(450, 221, 69, 75), new(23, 51, 37, 16)) ||
+            HasStoryRewardItem(screen, "story-reward-banner-ticket.png", new(40, 228, 880, 50));
+    }
+    static bool HasStoryRewardItem(Bitmap screen, string image, Rectangle area, Rectangle? quantity = null)
+    {
+        using var expected = new Bitmap(Path.Combine(Root, "templates", image));
+        using var count = quantity is { } region ? expected.Clone(region, expected.PixelFormat) : null;
+        var anchors = new List<(int X, int Y, Color Color)>();
+        foreach (var y in new[] { expected.Height / 4, expected.Height / 2, expected.Height * 3 / 4 })
+            foreach (var x in new[] { expected.Width / 4, expected.Width / 2, expected.Width * 3 / 4 })
+                anchors.Add((x, y, expected.GetPixel(x, y)));
+        for (var top = area.Top; top + expected.Height <= area.Bottom; top++)
+            for (var left = area.Left; left + expected.Width <= area.Right; left++)
+            {
+                var candidate = true;
+                foreach (var anchor in anchors)
+                {
+                    var p = screen.GetPixel(left + anchor.X, top + anchor.Y);
+                    if (Math.Abs(p.R - anchor.Color.R) + Math.Abs(p.G - anchor.Color.G) + Math.Abs(p.B - anchor.Color.B) <= 80) continue;
+                    candidate = false; break;
+                }
+                if (!candidate || !DifferenceBelow(screen, expected, left, top, expected.Width, expected.Height, 8)) continue;
+                // The icon occupies most of the crop: also compare x50 tightly so x25/missing digits cannot pass.
+                if (quantity is { } q && !DifferenceBelow(screen, count!, left + q.X, top + q.Y, q.Width, q.Height, 5)) continue;
+                return true;
+            }
+        return false;
     }
     static bool HasRewardsObtainedText(Bitmap screen)
     {
