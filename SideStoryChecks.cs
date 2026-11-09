@@ -13,21 +13,37 @@ internal static partial class Program
         using var performance = F("side-performance-result.png");
         using var sideReward = F("side-reward-result.png");
 
-        assert(IsSideCharacterSelect(vs) && IsSideCharacterSelect(vbs) && !IsSideCharacterSelect(badges), "side character select prompt");
-        foreach (var select in new[] { vs, vbs })
+        using var animated = F("side-select-animated.png");
+        assert(!Matches(animated, new("old-side-select", "side-select-prompt.png", 0, 0, 420, 506, 284, 19)),
+            "live animated background reproduces failure of the old RGB prompt comparison");
+        assert(IsSideCharacterSelect(animated), "opaque logos recognize the live frame missed by the old translucent prompt");
+        assert(IsSideCharacterSelect(vs) && IsSideCharacterSelect(vbs) && !IsSideCharacterSelect(badges), "side selection requires both opaque unit logo fragments");
+        foreach (var select in new[] { vs, vbs, animated })
         {
             using var changedPrompt = new Bitmap(select);
-            using (var g = Graphics.FromImage(changedPrompt)) g.FillRectangle(Brushes.Black, 410, 495, 310, 35);
+            using (var g = Graphics.FromImage(changedPrompt)) g.FillRectangle(Brushes.Black, 120, 374, 820, 166);
             assert(IsSideCharacterSelect(changedPrompt) && FindSideNavAction(changedPrompt) == null,
-                "changing selection prompt background does not lose the character screen or navigate back");
-            var id = ReferenceEquals(select, vs) ? 21 : 9;
-            assert(SideNameplateIs(changedPrompt, id), "target selection works without the prompt crop");
-            var (unit, _) = SideCharacterSlot(id);
-            using (var g = Graphics.FromImage(changedPrompt))
-                g.FillRectangle(Brushes.Black, SideColumnX(unit, 1) - 38, 376, 76, 26);
-            assert(!IsSideCharacterSelect(changedPrompt), "one nameplate cannot authorize character-selection navigation");
-            using (var g = Graphics.FromImage(changedPrompt)) g.FillRectangle(Brushes.Black, 120, 374, 820, 30);
-            assert(!IsSideCharacterSelect(changedPrompt), "selection requires nameplates when the prompt is absent");
+                "prompt and nameplates can disappear without losing selection or navigating back");
+        }
+        foreach (var background in new[] { Color.Black, Color.White, Color.FromArgb(90, 100, 140), Color.FromArgb(20, 240, 210) })
+        {
+            using var isolated = new Bitmap(960, 540);
+            using (var g = Graphics.FromImage(isolated))
+            using (var brush = new SolidBrush(background))
+            {
+                g.FillRectangle(brush, 0, 0, 960, 540);
+                assert(!IsSideCharacterSelect(isolated), "background alone cannot identify selection");
+                foreach (var anchor in SideSelectionAnchors)
+                {
+                    using var tile = new Bitmap(Path.Combine(Root, "templates", anchor.Image));
+                    g.DrawImage(tile, new Rectangle(anchor.Left, anchor.Top, anchor.Width, anchor.Height),
+                        new Rectangle(0, 0, anchor.Width, anchor.Height), GraphicsUnit.Pixel);
+                }
+                assert(IsSideCharacterSelect(isolated), "only the tiny opaque interiors are required; every surrounding pixel may change");
+                var first = SideSelectionAnchors[0];
+                g.FillRectangle(brush, first.Left, first.Top, first.Width, first.Height);
+                assert(!IsSideCharacterSelect(isolated), "a single logo fragment cannot authorize navigation");
+            }
         }
         assert(Enumerable.Range(21, 6).All(id => SideNameplateIs(vs, id)) && Enumerable.Range(9, 4).All(id => SideNameplateIs(vbs, id)), "nameplate identifies every visible character");
         assert(!SideNameplateIs(vs, 1) && !SideNameplateIs(vbs, 1) && !SideNameplateIs(vbs, 5), "another unit's character in the same slot is rejected");
@@ -36,13 +52,32 @@ internal static partial class Program
         assert(!ValidSideCharacters([]) && !ValidSideCharacters([0]) && !ValidSideCharacters([9, 27]), "empty or invalid explicit selections never expand to all characters");
 
         foreach (var list in new[] { badges, locked, read }) assert(IsSideStoryList(list), "side list tab recognized");
+        foreach (var background in new[] { Color.FromArgb(45, 55, 75), Color.FromArgb(155, 170, 190), Color.FromArgb(200, 190, 210) })
+        foreach (var (source, image, left, top) in new[] { (badges, "side-list-tab.png", 680, 68) })
+        {
+            using var changed = new Bitmap(source);
+            using var template = new Bitmap(Path.Combine(Root, "templates", image));
+            using (var g = Graphics.FromImage(changed))
+            using (var brush = new SolidBrush(background))
+            using (var ink = new SolidBrush(Color.White))
+            {
+                g.FillRectangle(brush, left - 2, top - 2, template.Width + 4, template.Height + 4);
+                for (var y = 0; y < template.Height; y++) for (var x = 0; x < template.Width; x++)
+                {
+                    var p = template.GetPixel(x, y);
+                    if ((p.R + p.G + p.B) / 3 > 230) g.FillRectangle(ink, left + x, top + y, 1, 1);
+                }
+            }
+            assert(IsSideStoryList(changed),
+                "translucent side text is recognized by glyph contrast despite different background RGB");
+        }
         foreach (var other in new[] { vs, voice, unlockOn, reader, menu }) assert(!IsSideStoryList(other), "non-list screens are not the side list");
 
         foreach (var file in Directory.GetFiles(Path.Combine(Root, "tests", "fixtures"), "*.png"))
         {
-            if (Path.GetFileName(file) is "side-select-vs.png" or "side-select-vbs.png") continue;
             using var other = new Bitmap(file);
-            assert(!IsSideCharacterSelect(other), "other captured screens cannot authorize character selection: " + Path.GetFileName(file));
+            var selection = Path.GetFileName(file).StartsWith("side-select-", StringComparison.Ordinal);
+            assert(IsSideCharacterSelect(other) == selection, "captured screen classification by opaque logos: " + Path.GetFileName(file));
         }
         var none = Array.Empty<Bitmap>();
         assert(FindSideCandidate(badges, false, none) is { Action: { Name: "side-zenpen", X: 415, Y: >= 168 and <= 176 } }, "SKIP 前編 at the top-left is read first");

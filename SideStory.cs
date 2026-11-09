@@ -40,20 +40,22 @@ internal static partial class Program
     }
 
     static bool Is960(Bitmap s) => s.Width == 960 && s.Height == 540;
-    static bool IsSideCharacterSelect(Bitmap s)
+    // Only interior pixels of two opaque logos: no sidebar, outer outline,
+    // selected-tab color, prompt, or portrait participates in screen recognition.
+    static readonly Step[] SideSelectionAnchors =
+    [
+        new("side-unit-mmj", "side-unit-mmj-opaque.png", 0, 0, 43, 225, 20, 6),
+        new("side-unit-vbs", "side-unit-vbs-opaque.png", 0, 0, 51, 301, 20, 6)
+    ];
+    static bool IsSideCharacterSelect(Bitmap s) => Is960(s) && SideSelectionAnchors.All(anchor => Matches(s, anchor));
+    static bool SideTextGlyph(Bitmap s, string image, int left, int top)
     {
         if (!Is960(s)) return false;
-        if (Matches(s, new("side-select", "side-select-prompt.png", 0, 0, 420, 506, 284, 19))) return true;
-        // The prompt sits on an animated background. Two independently verified
-        // nameplates in the same unit identify selection even when that crop changes.
-        for (var unit = 0; unit < 6; unit++)
-        {
-            var first = unit == 0 ? 21 : (unit - 1) * 4 + 1;
-            if (SideNameplateMatches(s, first) && SideNameplateMatches(s, first + 1)) return true;
-        }
+        foreach (var dx in new[] { 0, -2, 2 }) foreach (var dy in new[] { 0, -2, 2 })
+            if (LightGlyph(s, image, left + dx, top + dy, 230)) return true;
         return false;
     }
-    static bool HasSideStoryListHeader(Bitmap s) => Is960(s) && Matches(s, new("side-list", "side-list-tab.png", 0, 0, 680, 68, 230, 23));
+    static bool HasSideStoryListHeader(Bitmap s) => SideTextGlyph(s, "side-list-tab.png", 680, 68);
     static bool IsSideStoryList(Bitmap s) => HasSideStoryListHeader(s) && !IsSidePerformanceResult(s) && !IsSideRewardResult(s);
     static bool IsSideRewardResult(Bitmap s) => HasSideStoryListHeader(s) && HasRewardsObtainedText(s);
     static bool IsSidePerformanceResult(Bitmap s)
