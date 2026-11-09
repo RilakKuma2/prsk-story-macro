@@ -94,7 +94,7 @@ internal static partial class Program
         if (screen.Width != 960 || screen.Height != 540) return false;
         // The item artwork is opaque. Never require the translucent banner text or page behind it.
         // Crystal recognition includes x50; tickets move horizontally as the number of items changes.
-        return HasStoryRewardItem(screen, "story-reward-crystal-50.png", new(450, 221, 69, 75), new(23, 51, 37, 16)) ||
+        return HasStoryRewardItem(screen, "story-reward-crystal-50.png", new(40, 217, 880, 82), new(23, 51, 37, 16)) ||
             HasStoryRewardItem(screen, "story-reward-banner-ticket.png", new(40, 228, 880, 50));
     }
     static bool HasStoryRewardItem(Bitmap screen, string image, Rectangle area, Rectangle? quantity = null)
@@ -397,6 +397,7 @@ internal static partial class Program
         var lastKnown = DateTime.UtcNow; var lastAction = DateTime.MinValue;
         var listFrames = 0;
         var listReturn = new StoryListReturnGate();
+        var actionWatchdog = new StoryActionWatchdog();
         DateTime? transitionSince = null;
         var mvProbeCount = 0;
         DateTime? menuOpenedAt = null;
@@ -423,6 +424,11 @@ internal static partial class Program
                 continue;
             }
             var action = FindReaderAction(screen);
+            if (actionWatchdog.Observe(action, DateTime.UtcNow))
+            {
+                CopyEvidence(ShotPath, Path.Combine(Artifacts, $"instance-{Selected!.Index}-reader-action-timeout.png"));
+                throw new RecoveryNeeded(RecoveryCause.UnknownState, $"스토리 창 {action!.Name}이 30초 동안 닫히지 않았습니다.");
+            }
             if (action != null)
             {
                 lastKnown = DateTime.UtcNow; listFrames = 0; transitionSince = null; mvProbeCount = 0;

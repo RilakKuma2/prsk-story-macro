@@ -52,6 +52,19 @@ internal static partial class Program
         return false;
     }
 
+    // Seeing a recognized button repeatedly is not progress. Bound retries so an
+    // unresponsive reward/voice dialog reaches the same recovery path as an unknown screen.
+    sealed class StoryActionWatchdog
+    {
+        HomeAction? previous;
+        DateTime since;
+        public bool Observe(HomeAction? action, DateTime now)
+        {
+            if (action == null || action != previous) { previous = action; since = now; return false; }
+            return now - since >= TimeSpan.FromSeconds(30);
+        }
+    }
+
     // A ticket banner can be followed by a separate 50-crystal banner. An uncovered
     // episode list between them must remain stable before the reader hands it back.
     sealed class StoryListReturnGate

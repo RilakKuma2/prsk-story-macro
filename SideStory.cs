@@ -40,7 +40,19 @@ internal static partial class Program
     }
 
     static bool Is960(Bitmap s) => s.Width == 960 && s.Height == 540;
-    static bool IsSideCharacterSelect(Bitmap s) => Is960(s) && Matches(s, new("side-select", "side-select-prompt.png", 0, 0, 420, 506, 284, 19));
+    static bool IsSideCharacterSelect(Bitmap s)
+    {
+        if (!Is960(s)) return false;
+        if (Matches(s, new("side-select", "side-select-prompt.png", 0, 0, 420, 506, 284, 19))) return true;
+        // The prompt sits on an animated background. Two independently verified
+        // nameplates in the same unit identify selection even when that crop changes.
+        for (var unit = 0; unit < 6; unit++)
+        {
+            var first = unit == 0 ? 21 : (unit - 1) * 4 + 1;
+            if (SideNameplateMatches(s, first) && SideNameplateMatches(s, first + 1)) return true;
+        }
+        return false;
+    }
     static bool HasSideStoryListHeader(Bitmap s) => Is960(s) && Matches(s, new("side-list", "side-list-tab.png", 0, 0, 680, 68, 230, 23));
     static bool IsSideStoryList(Bitmap s) => HasSideStoryListHeader(s) && !IsSidePerformanceResult(s) && !IsSideRewardResult(s);
     static bool IsSideRewardResult(Bitmap s) => HasSideStoryListHeader(s) && HasRewardsObtainedText(s);
@@ -84,7 +96,11 @@ internal static partial class Program
     // Each nameplate differs from others in the same slot; require the target to be the closest of all 26.
     static bool SideNameplateIs(Bitmap s, int id)
     {
-        if (!IsSideCharacterSelect(s)) return false;
+        return IsSideCharacterSelect(s) && SideNameplateMatches(s, id);
+    }
+    static bool SideNameplateMatches(Bitmap s, int id)
+    {
+        if (!Is960(s)) return false;
         var (unit, column) = SideCharacterSlot(id);
         var left = SideColumnX(unit, column) - 38;
         double Diff(int c) { using var t = new Bitmap(Path.Combine(Root, "templates", $"side-char-{c:00}.png")); return DifferenceAt(s, t, left, 376, 76, 26); }
@@ -167,6 +183,7 @@ internal static partial class Program
     static HomeAction? FindSideNavAction(Bitmap s)
     {
         if (!Is960(s)) return null;
+        if (IsSideCharacterSelect(s)) return null;
         if (FindSideResultAction(s) is { } result) return result;
         if (IsStoryDownload(s)) return new("story-download", 571, 405);
         if (IsSideStoryList(s)) return new("side-list-back", 32, 32);

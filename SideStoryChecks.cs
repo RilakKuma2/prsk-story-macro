@@ -14,6 +14,21 @@ internal static partial class Program
         using var sideReward = F("side-reward-result.png");
 
         assert(IsSideCharacterSelect(vs) && IsSideCharacterSelect(vbs) && !IsSideCharacterSelect(badges), "side character select prompt");
+        foreach (var select in new[] { vs, vbs })
+        {
+            using var changedPrompt = new Bitmap(select);
+            using (var g = Graphics.FromImage(changedPrompt)) g.FillRectangle(Brushes.Black, 410, 495, 310, 35);
+            assert(IsSideCharacterSelect(changedPrompt) && FindSideNavAction(changedPrompt) == null,
+                "changing selection prompt background does not lose the character screen or navigate back");
+            var id = ReferenceEquals(select, vs) ? 21 : 9;
+            assert(SideNameplateIs(changedPrompt, id), "target selection works without the prompt crop");
+            var (unit, _) = SideCharacterSlot(id);
+            using (var g = Graphics.FromImage(changedPrompt))
+                g.FillRectangle(Brushes.Black, SideColumnX(unit, 1) - 38, 376, 76, 26);
+            assert(!IsSideCharacterSelect(changedPrompt), "one nameplate cannot authorize character-selection navigation");
+            using (var g = Graphics.FromImage(changedPrompt)) g.FillRectangle(Brushes.Black, 120, 374, 820, 30);
+            assert(!IsSideCharacterSelect(changedPrompt), "selection requires nameplates when the prompt is absent");
+        }
         assert(Enumerable.Range(21, 6).All(id => SideNameplateIs(vs, id)) && Enumerable.Range(9, 4).All(id => SideNameplateIs(vbs, id)), "nameplate identifies every visible character");
         assert(!SideNameplateIs(vs, 1) && !SideNameplateIs(vbs, 1) && !SideNameplateIs(vbs, 5), "another unit's character in the same slot is rejected");
         assert(SideOrder([20, 21, 1, 9, 1, 0, 27]).SequenceEqual([21, 1, 9, 20]), "targets follow the unit tab order without duplicates");
@@ -23,6 +38,12 @@ internal static partial class Program
         foreach (var list in new[] { badges, locked, read }) assert(IsSideStoryList(list), "side list tab recognized");
         foreach (var other in new[] { vs, voice, unlockOn, reader, menu }) assert(!IsSideStoryList(other), "non-list screens are not the side list");
 
+        foreach (var file in Directory.GetFiles(Path.Combine(Root, "tests", "fixtures"), "*.png"))
+        {
+            if (Path.GetFileName(file) is "side-select-vs.png" or "side-select-vbs.png") continue;
+            using var other = new Bitmap(file);
+            assert(!IsSideCharacterSelect(other), "other captured screens cannot authorize character selection: " + Path.GetFileName(file));
+        }
         var none = Array.Empty<Bitmap>();
         assert(FindSideCandidate(badges, false, none) is { Action: { Name: "side-zenpen", X: 415, Y: >= 168 and <= 176 } }, "SKIP 前編 at the top-left is read first");
         var scan = ScanSideList(badges);

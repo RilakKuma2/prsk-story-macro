@@ -61,6 +61,14 @@ internal static partial class Program
             "only a stable uncovered list after the second reward can return to episode verification");
         assert(!gate.Observe(false, start.AddSeconds(7)) && !gate.Observe(true, start.AddSeconds(8)),
             "a new overlay clears a previously completed return wait");
+        var watchdog = new StoryActionWatchdog();
+        assert(!watchdog.Observe(close, start) && !watchdog.Observe(close, start.AddSeconds(29)),
+            "recognized rewards allow bounded dismissal retries");
+        assert(watchdog.Observe(close, start.AddSeconds(30)), "an unchanged reward reaches recovery even though it is recognized");
+        assert(!watchdog.Observe(null, start.AddSeconds(31)) && !watchdog.Observe(close, start.AddSeconds(32)),
+            "leaving the dialog resets its timeout");
+        assert(!watchdog.Observe(new("story-no-voice", 480, 406), start.AddSeconds(62)),
+            "a different dialog starts a fresh timeout");
         VerifyStalledRewardRecovery(assert).GetAwaiter().GetResult();
         var savedAuto = AutoResumeEnabled;
         var savedMemory = RequestedMemoryGb;
@@ -105,7 +113,7 @@ internal static partial class Program
                     new Rectangle(0, 0, ticket.Width, ticket.Height), GraphicsUnit.Pixel);
             assert(IsStoryRewardsBanner(moved), "ticket matching searches the reward row, including odd pixel positions and both edges");
         }
-        foreach (var (left, top) in new[] { (454, 225), (452, 223), (458, 229) })
+        foreach (var (left, top) in new[] { (454, 225), (452, 223), (458, 229), (410, 225), (498, 225), (454, 232) })
         {
             using var moved = new Bitmap(960, 540);
             using (var graphics = Graphics.FromImage(moved))
