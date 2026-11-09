@@ -170,10 +170,22 @@ internal static partial class Program
         }
         throw new InvalidOperationException("선택한 스토리의 다운로드 대기 시간이 초과되었습니다.");
     }
+    static bool NeedsStoryNavigationAtStart(Bitmap screen) => IsAreaMain(screen) || IsStoryMenu(screen) ||
+        IsStoryDownload(screen) || IsStoryLoading(screen) || IsStoryGuide(screen);
+
+    static async Task PrepareStoryQueueStart(Func<Task<Bitmap>> capture, Func<Task> enter, Func<Task> filter)
+    {
+        using (var start = await capture())
+            if (NeedsStoryNavigationAtStart(start)) await enter();
+        // Navigation may have changed the screen. Filter only a fresh catalogue/modal;
+        // an already open episode list or reader keeps its current position.
+        using var current = await capture();
+        if (NeedsStoryFilterAtStart(current)) await filter();
+    }
+
     static async Task ReadStoryQueue()
     {
-        using (var start = await Capture())
-            if (NeedsStoryFilterAtStart(start)) await ApplyUnreadFilter();
+        await PrepareStoryQueueStart(() => Capture(), EnterMainEventStories, () => ApplyUnreadFilter());
         var progress = LoadQueueProgress();
         var pass = new CatalogueReadPass();
         using (var initial = await Capture())

@@ -4,6 +4,7 @@ internal static partial class Program
 {
     static async Task VerifyUnreadResume(Action<bool,string> assert)
     {
+        await VerifyStoryQueueEntry(assert);
         using var redOnly = new Bitmap(Path.Combine(Root,"tests","fixtures","latest-episode-unread-only.png"));
         using var mixed = new Bitmap(Path.Combine(Root,"tests","fixtures","episode-lock-with-skip.png"));
         using var lockedOnly = new Bitmap(Path.Combine(Root,"tests","fixtures","episode-only-locked-remains.png"));
@@ -85,4 +86,34 @@ internal static partial class Program
         var complete=RecordVerifiedStory(progress,new(false,false,true,2));
         assert(complete.Stage=="verified" && complete.Completed.Count==1,"fully verified unlocked stories are recorded as completed");
     }
+    static async Task VerifyStoryQueueEntry(Action<bool, string> assert)
+    {
+        Bitmap Load(string name) => new(Path.Combine(Root, "tests", "fixtures", name + ".png"));
+        foreach (var name in new[] { "main", "story-menu", "story-menu-live", "story-download-dialog", "story-downloading", "main-event-guide" })
+        {
+            using var source = Load(name);
+            assert(NeedsStoryNavigationAtStart(source), "whole-story entry recognizes " + name);
+            var captures = 0; var entered = false; var filtered = false;
+            await PrepareStoryQueueStart(() =>
+            {
+                captures++;
+                return Task.FromResult(captures == 1 ? new Bitmap(source) : Load("story-filter-open"));
+            }, () => { entered = true; return Task.CompletedTask; }, () =>
+            {
+                assert(entered && captures == 2, "entry finishes and captures a fresh screen before filtering");
+                filtered = true; return Task.CompletedTask;
+            });
+            assert(entered && filtered, "whole-story start navigates before reading episodes: " + name);
+        }
+        foreach (var name in new[] { "catalogue-top-filtered", "top-story-episodes", "story-reader-fade", "story-completion-crystals", "side-select-vs", "gacha-protected" })
+        {
+            using var source = Load(name);
+            assert(!NeedsStoryNavigationAtStart(source), "entry must not reset or navigate through " + name);
+            var entered = false;
+            await PrepareStoryQueueStart(() => Task.FromResult(new Bitmap(source)),
+                () => { entered = true; return Task.CompletedTask; }, () => Task.CompletedTask);
+            assert(!entered, "existing reading position and unsupported screens do not trigger home navigation: " + name);
+        }
+    }
+
 }
